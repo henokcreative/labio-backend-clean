@@ -98,6 +98,15 @@ ALLOWED_HOSTS = env_list(
 )
 if IS_PRODUCTION and not os.environ.get("ALLOWED_HOSTS"):
     raise ImproperlyConfigured("ALLOWED_HOSTS must be configured in production.")
+
+render_external_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if (
+    IS_PRODUCTION
+    and render_external_hostname
+    and render_external_hostname not in ALLOWED_HOSTS
+):
+    ALLOWED_HOSTS.append(render_external_hostname)
+
 if IS_PRODUCTION and "*" in ALLOWED_HOSTS:
     raise ImproperlyConfigured("ALLOWED_HOSTS cannot contain '*' in production.")
 
