@@ -77,3 +77,66 @@ class RenderAllowedHostsSettingsTests(SimpleTestCase):
             allowed_hosts,
             ["api.labiomedia.com", "labio-backend-prod.onrender.com"],
         )
+
+
+class CmsMediaStorageSettingsTests(SimpleTestCase):
+    def test_r2_public_urls_include_bucket_and_cms_prefixes(self):
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "ALLOWED_HOSTS": "api.labiomedia.com",
+                "CLOUDINARY_API_KEY": "test-key",
+                "CLOUDINARY_API_SECRET": "test-secret",
+                "CLOUDINARY_CLOUD_NAME": "test-cloud",
+                "CMS_MEDIA_ACCESS_KEY_ID": "test-access-key",
+                "CMS_MEDIA_BUCKET_NAME": "labio-cms-media-production",
+                "CMS_MEDIA_CUSTOM_DOMAIN": "media.labiomedia.com",
+                "CMS_MEDIA_SECRET_ACCESS_KEY": "test-secret-key",
+                "CONTACT_EMAIL": "contact@example.com",
+                "CORS_ALLOWED_ORIGINS": "https://example.com",
+                "CSRF_TRUSTED_ORIGINS": "https://example.com",
+                "DATABASE_URL": "sqlite:///:memory:",
+                "DEBUG": "false",
+                "DJANGO_ENV": "production",
+                "EMAIL_FROM": "notifications@example.com",
+                "INVITATION_FRONTEND_URL": (
+                    "https://example.com/accept-invitation"
+                ),
+                "RESEND_API_KEY": "test-resend-key",
+                "SECRET_KEY": "test-only-secret-key-" * 4,
+                "SECURE_HSTS_SECONDS": "300",
+                "WAGTAILADMIN_BASE_URL": "https://example.com",
+            }
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from django.core.files.storage import default_storage; "
+                    "print(default_storage.url('original_images/landing-hero.jpg')); "
+                    "print(default_storage.url('images/landing-hero.original.jpg'))"
+                ),
+            ],
+            check=True,
+            capture_output=True,
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            env=environment,
+            text=True,
+        )
+
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                (
+                    "https://media.labiomedia.com/"
+                    "labio-cms-media-production/cms/original_images/"
+                    "landing-hero.jpg"
+                ),
+                (
+                    "https://media.labiomedia.com/"
+                    "labio-cms-media-production/cms/images/"
+                    "landing-hero.original.jpg"
+                ),
+            ],
+        )

@@ -320,6 +320,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 cms_media_access_key = os.environ.get('CMS_MEDIA_ACCESS_KEY_ID')
 cms_media_secret_key = os.environ.get('CMS_MEDIA_SECRET_ACCESS_KEY')
 cms_media_bucket = os.environ.get('CMS_MEDIA_BUCKET_NAME')
+cms_media_custom_domain = os.environ.get('CMS_MEDIA_CUSTOM_DOMAIN')
 cms_media_uses_s3 = bool(
     cms_media_access_key
     and cms_media_secret_key
@@ -349,7 +350,14 @@ if cms_media_uses_s3:
     optional_cms_media_options = {
         'region_name': os.environ.get('CMS_MEDIA_REGION_NAME'),
         'endpoint_url': os.environ.get('CMS_MEDIA_ENDPOINT_URL'),
-        'custom_domain': os.environ.get('CMS_MEDIA_CUSTOM_DOMAIN'),
+        # This R2 public binding serves the bucket below its bucket-name path.
+        # Adding that path to django-storages' public domain changes generated
+        # URLs only; object keys remain under the separate ``cms`` location.
+        'custom_domain': (
+            f"{cms_media_custom_domain.rstrip('/')}/{cms_media_bucket}"
+            if cms_media_custom_domain
+            else None
+        ),
     }
     cms_media_options.update(
         {
