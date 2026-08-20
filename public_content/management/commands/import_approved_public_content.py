@@ -1,9 +1,11 @@
+import warnings
 from pathlib import Path
 
 from django.conf import settings
 from django.core.files import File
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from PIL import Image, UnidentifiedImageError
 from wagtail.images import get_image_model
 from wagtail.models import Site
 
@@ -37,6 +39,7 @@ from public_content.models import (
 
 class Command(BaseCommand):
     APPLY_CONFIRMATION = "IMPORT_APPROVED_PUBLIC_CONTENT"
+    MAX_IMPORT_RASTER_PIXELS = 8_000_000
     help = (
         "Idempotently import the approved Next.js public fallbacks into the "
         "existing Wagtail HomePage tree."
@@ -107,10 +110,11 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
-            images = {
-                key: self._get_or_create_image(key)
-                for key in ASSETS
-            }
+            # Wagtail image inspection can decode source media. Import each
+            # file sequentially so only one source is processed at a time.
+            images = {}
+            for key in ASSETS:
+                images[key] = self._get_or_create_image(key)
 
             service_index = self._upsert_page(
                 home,
@@ -196,13 +200,49 @@ class Command(BaseCommand):
 
     def _validate_sources(self):
         missing = []
+        invalid_rasters = []
+        oversized_rasters = []
         for relative_path, _title in ASSETS.values():
             source = self.frontend_root / relative_path
             if not source.is_file():
                 missing.append(str(source))
+                continue
+            if source.suffix.lower() == ".svg":
+                continue
+
+            try:
+                # Image.open reads only enough data for metadata here; it does
+                # not decode the raster. Suppress Pillow's much higher default
+                # warning because this command enforces a stricter limit.
+                with warnings.catch_warnings():
+                    warnings.simplefilter(
+                        "ignore",
+                        Image.DecompressionBombWarning,
+                    )
+                    with Image.open(source) as raster:
+                        width, height = raster.size
+            except (OSError, UnidentifiedImageError) as error:
+                invalid_rasters.append(f"{source}: {error}")
+                continue
+
+            pixels = width * height
+            if pixels > self.MAX_IMPORT_RASTER_PIXELS:
+                oversized_rasters.append(
+                    f"{source}: {width}x{height} ({pixels:,} pixels)"
+                )
         if missing:
             raise CommandError(
                 "Approved media files are missing:\n" + "\n".join(missing)
+            )
+        if invalid_rasters:
+            raise CommandError(
+                "Approved raster media could not be inspected:\n"
+                + "\n".join(invalid_rasters)
+            )
+        if oversized_rasters:
+            raise CommandError(
+                "Approved raster media exceeds the 8,000,000-pixel import "
+                "limit:\n" + "\n".join(oversized_rasters)
             )
 
     def _validate_tree(self, home):
@@ -258,8 +298,11 @@ class Command(BaseCommand):
         image = image_model(title=title)
         with source.open("rb") as source_file:
             image.file.save(source.name, File(source_file), save=False)
-        image.full_clean()
-        image.save()
+        try:
+            image.full_clean()
+            image.save()
+        finally:
+            image.file.close()
         self.stats["images_created"] += 1
         return image
 

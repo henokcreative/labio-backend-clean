@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
+from PIL import Image
 from wagtail.images import get_image_model
 from wagtail.models import Page, Site
 
@@ -131,6 +132,26 @@ class ApprovedPublicContentImportTests(TestCase):
                 apply=True,
                 confirm="",
             )
+
+    def test_apply_rejects_oversized_raster_before_writing(self):
+        relative_path, _title = ASSETS["web-digital"]
+        source = self.frontend_root / relative_path
+        with Image.new("1", (3000, 3000)) as oversized:
+            oversized.save(source, format="PNG")
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "3000x3000 (9,000,000 pixels)",
+        ):
+            call_command(
+                "import_approved_public_content",
+                frontend_root=self.frontend_root,
+                apply=True,
+                confirm="IMPORT_APPROVED_PUBLIC_CONTENT",
+            )
+
+        self.assertEqual(ServiceIndexPage.objects.count(), 0)
+        self.assertEqual(get_image_model().objects.count(), 1)
 
     def test_import_is_idempotent_and_public_api_ready(self):
         original_home_copy = self.home.hero_copy

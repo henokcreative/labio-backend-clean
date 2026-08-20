@@ -334,7 +334,7 @@ MOCK_TESTIMONIALS = (
 
 ASSETS = {
     "web-digital": (
-        "public/images/work/webdesignDev/thumb-bioscience.png",
+        "public/images/work/webdesignDev/thumb-bioscience.webp",
         "Approved public content — Web and Digital",
     ),
     "video-production": (
@@ -346,7 +346,7 @@ ASSETS = {
         "Approved public content — Photography",
     ),
     "brand-design": (
-        "public/images/work/webprintdesign/Euro BioImaging Poster EMBL_2.png",
+        "public/images/work/webprintdesign/Euro BioImaging Poster EMBL_2.webp",
         "Approved public content — Brand and Design",
     ),
     "about": (
