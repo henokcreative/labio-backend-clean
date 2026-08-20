@@ -23,6 +23,7 @@ from public_content.models import (
     CaseStudyPage,
     Collaborator,
     HomePage,
+    HomePageCollaborator,
     HomePageFeaturedCaseStudy,
     HomePageFeaturedService,
     PortfolioIndexPage,
@@ -159,8 +160,13 @@ class Command(BaseCommand):
             )
             self._upsert_pricing_items(pricing)
 
-            self._upsert_home_relations(home, services, case_studies)
-            self._upsert_collaborators(images)
+            collaborators = self._upsert_collaborators(images)
+            self._upsert_home_relations(
+                home,
+                services,
+                case_studies,
+                collaborators,
+            )
             self._upsert_testimonials(services, case_studies)
             self._upsert_site_settings(site)
 
@@ -369,7 +375,13 @@ class Command(BaseCommand):
             ]
         )
 
-    def _upsert_home_relations(self, home, services, case_studies):
+    def _upsert_home_relations(
+        self,
+        home,
+        services,
+        case_studies,
+        collaborators,
+    ):
         self._replace_ordered_relations(
             home.featured_services,
             HomePageFeaturedService,
@@ -384,9 +396,17 @@ class Command(BaseCommand):
             "case_study",
             [case_studies[content["slug"]] for content in CASE_STUDIES],
         )
+        self._replace_ordered_relations(
+            home.homepage_collaborators,
+            HomePageCollaborator,
+            home,
+            "collaborator",
+            collaborators,
+        )
         home.save_revision().publish()
 
     def _upsert_collaborators(self, images):
+        collaborators = []
         for content in COLLABORATORS:
             collaborator = Collaborator.objects.filter(
                 organization_name=content["organization_name"]
@@ -405,8 +425,10 @@ class Command(BaseCommand):
             collaborator.full_clean()
             collaborator.save()
             collaborator.save_revision().publish()
+            collaborators.append(collaborator)
             key = "collaborators_created" if created else "collaborators_updated"
             self.stats[key] += 1
+        return collaborators
 
     def _upsert_pricing_items(self, pricing):
         for index, content in enumerate(MOCK_PRICING_ITEMS):

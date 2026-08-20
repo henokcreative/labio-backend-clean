@@ -14,6 +14,7 @@ from .models import (
     CaseStudyPage,
     Collaborator,
     HomePage,
+    HomePageCollaborator,
     HomePageFeaturedCaseStudy,
     HomePageFeaturedService,
     PortfolioIndexPage,
@@ -215,7 +216,7 @@ class PublicContentSecurityTests(TestCase):
         cls.home.add_child(instance=cls.draft_page)
         cls.draft_page.save_revision()
 
-        Collaborator.objects.create(
+        cls.published_collaborator = Collaborator.objects.create(
             organization_name="Published Partner",
             logo=cls.image,
             logo_alt="Published Partner logo",
@@ -224,7 +225,16 @@ class PublicContentSecurityTests(TestCase):
             active=True,
             live=True,
         )
-        Collaborator.objects.create(
+        cls.second_published_collaborator = Collaborator.objects.create(
+            organization_name="Second Published Partner",
+            logo=cls.image,
+            logo_alt="Second Published Partner logo",
+            url="https://second-partner.example.com",
+            display_order=0,
+            active=True,
+            live=True,
+        )
+        cls.inactive_collaborator = Collaborator.objects.create(
             organization_name="Inactive Partner",
             logo=cls.image,
             logo_alt="Inactive Partner logo",
@@ -233,7 +243,7 @@ class PublicContentSecurityTests(TestCase):
             active=False,
             live=True,
         )
-        Collaborator.objects.create(
+        cls.draft_collaborator = Collaborator.objects.create(
             organization_name="Draft Partner",
             logo=cls.image,
             logo_alt="Draft Partner logo",
@@ -242,6 +252,20 @@ class PublicContentSecurityTests(TestCase):
             active=True,
             live=False,
         )
+        for sort_order, collaborator in enumerate(
+            (
+                cls.draft_collaborator,
+                cls.published_collaborator,
+                cls.inactive_collaborator,
+                cls.second_published_collaborator,
+            )
+        ):
+            HomePageCollaborator.objects.create(
+                page=cls.home,
+                collaborator=collaborator,
+                sort_order=sort_order,
+            )
+        cls.home.save_revision().publish()
 
         Testimonial.objects.create(
             quote="A published testimonial.",
@@ -380,7 +404,10 @@ class PublicContentSecurityTests(TestCase):
             item["organization_name"]
             for item in response.json()
         }
-        self.assertEqual(names, {"Published Partner"})
+        self.assertEqual(
+            names,
+            {"Published Partner", "Second Published Partner"},
+        )
         collaborator = response.json()[0]
         self.assertEqual(
             set(collaborator),
@@ -487,6 +514,29 @@ class PublicContentSecurityTests(TestCase):
             [item["id"] for item in home_data["selected_work"]],
             [self.case_study.pk],
         )
+        self.assertTrue(home_data["collaborators_enabled"])
+        self.assertEqual(
+            home_data["collaborators_heading"],
+            "Trusted by research groups and organisations",
+        )
+        self.assertEqual(
+            [item["id"] for item in home_data["collaborators"]],
+            [
+                self.published_collaborator.pk,
+                self.second_published_collaborator.pk,
+            ],
+        )
+        self.assertEqual(
+            set(home_data["collaborators"][0]),
+            {
+                "id",
+                "organization_name",
+                "logo",
+                "url",
+                "display_order",
+                "visual_variant",
+            },
+        )
         self.assertEqual(
             [
                 item["id"]
@@ -500,6 +550,17 @@ class PublicContentSecurityTests(TestCase):
             [item["id"] for item in responses[self.case_study.pk]["services"]],
             [self.service.pk],
         )
+
+    def test_homepage_can_disable_collaborator_section(self):
+        self.home.collaborators_enabled = False
+        self.home.save_revision().publish()
+
+        response = self.client.get(
+            f"/api/cms/v2/pages/{self.home.pk}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["collaborators_enabled"])
 
     def test_typed_page_listing_supports_frontend_fields_contract(self):
         response = self.client.get(

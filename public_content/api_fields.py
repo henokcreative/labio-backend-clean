@@ -89,6 +89,38 @@ class OrderedRelatedPagesField(Field):
         ]
 
 
+class OrderedCollaboratorsField(Field):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("read_only", True)
+        super().__init__(**kwargs)
+
+    def to_representation(self, value):
+        relations = value.select_related("collaborator").order_by(
+            "sort_order",
+            "pk",
+        )
+        collaborators = []
+        for relation in relations:
+            collaborator = relation.collaborator
+            if not collaborator.live or not collaborator.active:
+                continue
+            collaborators.append(
+                {
+                    "id": collaborator.pk,
+                    "organization_name": collaborator.organization_name,
+                    "logo": get_rendition_data(
+                        collaborator.logo,
+                        "max-600x300",
+                        collaborator.logo_alt,
+                    ),
+                    "url": collaborator.url,
+                    "display_order": collaborator.display_order,
+                    "visual_variant": collaborator.visual_variant,
+                }
+            )
+        return collaborators
+
+
 class ActivePricingItemsField(Field):
     def __init__(self, **kwargs):
         kwargs.setdefault("read_only", True)

@@ -197,6 +197,21 @@ class ApprovedPublicContentImportTests(TestCase):
         )
 
         self.assertEqual(Collaborator.objects.filter(live=True, active=True).count(), 5)
+        self.assertEqual(
+            list(
+                self.home.homepage_collaborators.values_list(
+                    "collaborator__organization_name",
+                    flat=True,
+                )
+            ),
+            [
+                "Turku Bioscience Centre",
+                "InFLAMES",
+                "Nordic Metabolomics Society",
+                "BioCity Turku",
+                "INITIALISE",
+            ],
+        )
         site_settings = SiteSettings.objects.get(site=self.site)
         self.assertEqual(site_settings.address, "Turku, Finland")
         self.assertEqual(site_settings.default_cta_label, "Start a conversation")
