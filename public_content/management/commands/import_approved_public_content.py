@@ -39,7 +39,8 @@ from public_content.models import (
 
 class Command(BaseCommand):
     APPLY_CONFIRMATION = "IMPORT_APPROVED_PUBLIC_CONTENT"
-    MAX_IMPORT_RASTER_PIXELS = 8_000_000
+    BUNDLE_VERSION = "2026-08-20-v3"
+    MAX_IMPORT_RASTER_PIXELS = 4_000_000
     help = (
         "Idempotently import the approved Next.js public fallbacks into the "
         "existing Wagtail HomePage tree."
@@ -82,6 +83,7 @@ class Command(BaseCommand):
             )
 
         self.frontend_root = options["frontend_root"].expanduser().resolve()
+        self.stdout.write(f"Import bundle version: {self.BUNDLE_VERSION}")
         self.stats = {
             "images_created": 0,
             "images_reused": 0,
@@ -95,9 +97,11 @@ class Command(BaseCommand):
             "testimonials_updated": 0,
         }
 
+        # Prove and validate the exact runtime bundle before any database or
+        # object-storage write can occur.
+        self._validate_sources()
         home = self._get_home_page()
         site = self._get_site(home)
-        self._validate_sources()
         self._validate_tree(home)
 
         if options["dry_run"]:
@@ -202,6 +206,7 @@ class Command(BaseCommand):
         missing = []
         invalid_rasters = []
         oversized_rasters = []
+        raster_details = []
         for relative_path, _title in ASSETS.values():
             source = self.frontend_root / relative_path
             if not source.is_file():
@@ -226,10 +231,16 @@ class Command(BaseCommand):
                 continue
 
             pixels = width * height
+            filesize = source.stat().st_size
+            detail = (
+                f"{relative_path} | {width}x{height} | "
+                f"{pixels:,} pixels | {filesize:,} bytes"
+            )
+            raster_details.append(detail)
             if pixels > self.MAX_IMPORT_RASTER_PIXELS:
-                oversized_rasters.append(
-                    f"{source}: {width}x{height} ({pixels:,} pixels)"
-                )
+                oversized_rasters.append(detail)
+        for detail in raster_details:
+            self.stdout.write(f"Import raster: {detail}")
         if missing:
             raise CommandError(
                 "Approved media files are missing:\n" + "\n".join(missing)
@@ -241,7 +252,7 @@ class Command(BaseCommand):
             )
         if oversized_rasters:
             raise CommandError(
-                "Approved raster media exceeds the 8,000,000-pixel import "
+                "Approved raster media exceeds the 4,000,000-pixel import "
                 "limit:\n" + "\n".join(oversized_rasters)
             )
 

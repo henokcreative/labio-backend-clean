@@ -116,6 +116,12 @@ class ApprovedPublicContentImportTests(TestCase):
     def test_dry_run_validates_without_writing(self):
         output = self.run_import(dry_run=True)
 
+        self.assertIn(
+            "Import bundle version: 2026-08-20-v3",
+            output,
+        )
+        self.assertEqual(output.count("Import raster:"), 14)
+        self.assertNotIn(str(self.frontend_root), output)
         self.assertIn("Dry run passed", output)
         self.assertEqual(ServiceIndexPage.objects.count(), 0)
         self.assertEqual(Collaborator.objects.count(), 0)
@@ -141,7 +147,7 @@ class ApprovedPublicContentImportTests(TestCase):
 
         with self.assertRaisesMessage(
             CommandError,
-            "3000x3000 (9,000,000 pixels)",
+            "3000x3000 | 9,000,000 pixels",
         ):
             call_command(
                 "import_approved_public_content",
