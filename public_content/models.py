@@ -11,6 +11,7 @@ from wagtail.snippets.models import register_snippet
 from .api_fields import (
     ActivePricingItemsField,
     ControlledImageRenditionField,
+    OrderedCollaboratorsField,
     OrderedRelatedPagesField,
     PublicPageListField,
 )
@@ -77,6 +78,14 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
     primary_cta_url = models.URLField(max_length=500)
     secondary_cta_label = models.CharField(max_length=100)
     secondary_cta_url = models.URLField(max_length=500)
+    collaborators_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the collaborators section on the public homepage.",
+    )
+    collaborators_heading = models.CharField(
+        max_length=255,
+        default="Trusted by research groups and organisations",
+    )
     about_heading = models.CharField(max_length=255)
     about_copy = models.TextField(max_length=1500)
     about_image = models.ForeignKey(
@@ -104,6 +113,13 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("secondary_cta_url"),
         InlinePanel("selected_case_studies", label="Selected case study"),
         InlinePanel("featured_services", label="Featured service"),
+        FieldPanel("collaborators_enabled"),
+        FieldPanel("collaborators_heading"),
+        InlinePanel(
+            "homepage_collaborators",
+            label="Collaborator",
+            help_text="Choose and drag collaborators into public display order.",
+        ),
         FieldPanel("about_heading"),
         FieldPanel("about_copy"),
         FieldPanel("about_image"),
@@ -142,6 +158,14 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
             "featured_services",
             serializer=OrderedRelatedPagesField(
                 page_attribute="service",
+            ),
+        ),
+        APIField("collaborators_enabled"),
+        APIField("collaborators_heading"),
+        APIField(
+            "collaborators",
+            serializer=OrderedCollaboratorsField(
+                source="homepage_collaborators",
             ),
         ),
         APIField("about_heading"),
@@ -490,6 +514,29 @@ class HomePageFeaturedService(Orderable):
     )
 
     panels = [FieldPanel("service")]
+
+
+class HomePageCollaborator(Orderable):
+    page = ParentalKey(
+        HomePage,
+        related_name="homepage_collaborators",
+        on_delete=models.CASCADE,
+    )
+    collaborator = models.ForeignKey(
+        "public_content.Collaborator",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+
+    panels = [FieldPanel("collaborator")]
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["page", "collaborator"],
+                name="unique_homepage_collaborator",
+            )
+        ]
 
 
 @register_snippet
