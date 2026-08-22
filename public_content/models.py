@@ -1229,6 +1229,10 @@ class Testimonial(DraftStateMixin, RevisionMixin, models.Model):
 
 @register_setting
 class SiteSettings(BaseSiteSetting):
+    legal_business_name = models.CharField(max_length=255, blank=True)
+    business_id = models.CharField(max_length=50, blank=True)
+    city = models.CharField(max_length=150, blank=True)
+    country = models.CharField(max_length=150, blank=True)
     public_contact_email = models.EmailField(blank=True)
     public_phone = models.CharField(max_length=50, blank=True)
     address = models.TextField(blank=True)
@@ -1248,9 +1252,13 @@ class SiteSettings(BaseSiteSetting):
     )
 
     panels = [
+        FieldPanel("legal_business_name"),
+        FieldPanel("business_id"),
+        FieldPanel("address"),
+        FieldPanel("city"),
+        FieldPanel("country"),
         FieldPanel("public_contact_email"),
         FieldPanel("public_phone"),
-        FieldPanel("address"),
         FieldPanel("default_cta_label"),
         FieldPanel("default_cta_url"),
         FieldPanel("social_links"),

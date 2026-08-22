@@ -158,6 +158,10 @@ class SiteSettingsView(PublicAPIBaseView):
         if settings is None:
             return Response(
                 {
+                    "legal_business_name": "",
+                    "business_id": "",
+                    "city": "",
+                    "country": "",
                     "public_contact_email": "",
                     "public_phone": "",
                     "address": "",
@@ -173,6 +177,10 @@ class SiteSettingsView(PublicAPIBaseView):
         )
         return Response(
             {
+                "legal_business_name": settings.legal_business_name,
+                "business_id": settings.business_id,
+                "city": settings.city,
+                "country": settings.country,
                 "public_contact_email": settings.public_contact_email,
                 "public_phone": settings.public_phone,
                 "address": settings.address,
