@@ -10,8 +10,10 @@ from wagtail.models import Site
 from .api_fields import get_rendition_data, only_public_pages, public_page_summary
 from .models import (
     AboutPage,
+    ArticlePage,
     CaseStudyPage,
     Collaborator,
+    EventPage,
     HomePage,
     PortfolioIndexPage,
     PricingPage,
@@ -20,6 +22,7 @@ from .models import (
     SiteSettings,
     StandardPage,
     Testimonial,
+    UpdatesIndexPage,
 )
 
 
@@ -32,6 +35,9 @@ PUBLIC_PAGE_MODELS = (
     PricingPage,
     AboutPage,
     StandardPage,
+    UpdatesIndexPage,
+    ArticlePage,
+    EventPage,
 )
 
 

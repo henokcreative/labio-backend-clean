@@ -72,6 +72,57 @@ class PublicPageListField(Field):
         return [public_page_summary(page) for page in only_public_pages(pages)]
 
 
+def public_update_summary(page):
+    page = page.specific
+    summary = {
+        "id": page.id,
+        "title": page.title,
+        "slug": page.slug,
+        "summary": page.summary,
+        "featured": page.featured,
+        "featured_image": get_rendition_data(
+            page.featured_image,
+            "fill-1200x675",
+            page.featured_image_alt,
+        ),
+    }
+    if hasattr(page, "article_type"):
+        summary.update(
+            {
+                "kind": "article",
+                "article_type": page.article_type,
+                "article_type_label": page.get_article_type_display(),
+                "publication_date": page.publication_date.isoformat(),
+            }
+        )
+    else:
+        summary.update(
+            {
+                "kind": "event",
+                "start_date": page.start_date.isoformat(),
+                "start_time": (
+                    page.start_time.isoformat() if page.start_time else None
+                ),
+                "end_date": (
+                    page.end_date.isoformat() if page.end_date else None
+                ),
+                "end_time": page.end_time.isoformat() if page.end_time else None,
+                "location": page.location,
+                "registration_url": page.registration_url,
+            }
+        )
+    return summary
+
+
+class PublicUpdateListField(Field):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("read_only", True)
+        super().__init__(**kwargs)
+
+    def to_representation(self, value):
+        return [public_update_summary(page) for page in only_public_pages(value)]
+
+
 class OrderedRelatedPagesField(Field):
     def __init__(self, page_attribute, **kwargs):
         self.page_attribute = page_attribute
