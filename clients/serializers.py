@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Approval, Client, Project, ProjectFile
+from .permissions import has_portal_staff_access
 
 
 class PublicStaffSerializer(serializers.Serializer):
@@ -125,10 +126,16 @@ class ProjectFileSerializer(serializers.ModelSerializer):
         return f"/api/projects/{obj.project_id}/files/{obj.id}/preview/"
 
     def get_pending_approval(self, obj):
-        return (
-            obj.category == ProjectFile.Category.APPROVAL
-            and obj.approvals.filter(status=Approval.Status.PENDING).exists()
+        if obj.category != ProjectFile.Category.APPROVAL:
+            return False
+        approvals = obj.approvals.filter(
+            project_id=obj.project_id,
+            status=Approval.Status.PENDING,
         )
+        request = self.context.get("request")
+        if request and not has_portal_staff_access(request.user):
+            approvals = approvals.filter(client__user=request.user)
+        return approvals.exists()
 
 
 class ApprovalSerializer(serializers.ModelSerializer):
