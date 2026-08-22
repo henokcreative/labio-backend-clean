@@ -354,6 +354,10 @@ class PublicContentSecurityTests(TestCase):
 
         SiteSettings.objects.create(
             site=cls.site,
+            legal_business_name="LaBio Media Oy",
+            business_id="1234567-8",
+            city="Turku",
+            country="Finland",
             public_contact_email="hello@example.com",
             public_phone="+358 00 000 0000",
             address="Helsinki, Finland",
@@ -506,6 +510,10 @@ class PublicContentSecurityTests(TestCase):
         self.assertEqual(
             set(response.json()),
             {
+                "legal_business_name",
+                "business_id",
+                "city",
+                "country",
                 "public_contact_email",
                 "public_phone",
                 "address",
@@ -519,6 +527,27 @@ class PublicContentSecurityTests(TestCase):
             set(response.json()["default_social_image"]),
             {"url", "width", "height", "alt"},
         )
+        self.assertEqual(response.json()["legal_business_name"], "LaBio Media Oy")
+        self.assertEqual(response.json()["business_id"], "1234567-8")
+        self.assertEqual(response.json()["city"], "Turku")
+        self.assertEqual(response.json()["country"], "Finland")
+
+    def test_settings_endpoint_uses_empty_public_identity_without_settings(self):
+        SiteSettings.objects.all().delete()
+
+        response = self.client.get("/api/cms/v2/settings/")
+
+        self.assertEqual(response.status_code, 200)
+        for field_name in (
+            "legal_business_name",
+            "business_id",
+            "city",
+            "country",
+            "public_contact_email",
+            "public_phone",
+            "address",
+        ):
+            self.assertEqual(response.json()[field_name], "")
 
     def test_cms_api_is_json_read_only_and_requires_no_jwt(self):
         for url in (
