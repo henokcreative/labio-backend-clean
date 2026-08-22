@@ -1,4 +1,8 @@
+from datetime import time
+
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from modelcluster.fields import ParentalKey, ParentalManyToManyField
 from wagtail import blocks as wagtail_blocks
 from wagtail.admin.panels import FieldPanel, InlinePanel, PublishingPanel
@@ -6,6 +10,7 @@ from wagtail.api import APIField
 from wagtail.contrib.settings.models import BaseSiteSetting, register_setting
 from wagtail.fields import StreamField
 from wagtail.models import DraftStateMixin, Orderable, Page, RevisionMixin
+from wagtail.search import index
 from wagtail.snippets.models import register_snippet
 
 from .api_fields import (
@@ -15,6 +20,7 @@ from .api_fields import (
     OrderedRelatedPagesField,
     OrderedTestimonialsField,
     PublicPageListField,
+    PublicUpdateListField,
 )
 from .blocks import (
     CapabilityBlock,
@@ -61,6 +67,7 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         "public_content.PortfolioIndexPage",
         "public_content.AboutPage",
         "public_content.PricingPage",
+        "public_content.UpdatesIndexPage",
         "public_content.StandardPage",
     ]
 
@@ -401,6 +408,212 @@ class PortfolioIndexPage(HeadlessPageMixin, PublicSEOMixin, Page):
     content_panels = Page.content_panels + [FieldPanel("intro")]
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
     api_fields = PublicSEOMixin.seo_api_fields + [APIField("intro")]
+
+
+class UpdatesIndexPage(HeadlessPageMixin, PublicSEOMixin, Page):
+    max_count = 1
+    parent_page_types = ["public_content.HomePage"]
+    subpage_types = [
+        "public_content.ArticlePage",
+        "public_content.EventPage",
+    ]
+
+    @property
+    def published_articles(self):
+        return (
+            ArticlePage.objects.child_of(self)
+            .live()
+            .public()
+            .order_by("-publication_date", "-first_published_at", "-pk")
+        )
+
+    @property
+    def upcoming_events(self):
+        today = timezone.localdate()
+        events = [
+            event
+            for event in EventPage.objects.child_of(self).live().public()
+            if (event.end_date or event.start_date) >= today
+        ]
+        return sorted(
+            events,
+            key=lambda event: (
+                event.start_date,
+                event.start_time or time.min,
+                event.pk,
+            ),
+        )
+
+    @property
+    def past_events(self):
+        today = timezone.localdate()
+        events = [
+            event
+            for event in EventPage.objects.child_of(self).live().public()
+            if (event.end_date or event.start_date) < today
+        ]
+        return sorted(
+            events,
+            key=lambda event: (
+                event.start_date,
+                event.start_time or time.min,
+                event.pk,
+            ),
+            reverse=True,
+        )
+
+    promote_panels = Page.promote_panels + [FieldPanel("social_image")]
+    api_fields = PublicSEOMixin.seo_api_fields + [
+        APIField(
+            "articles",
+            serializer=PublicUpdateListField(source="published_articles"),
+        ),
+        APIField(
+            "upcoming_events",
+            serializer=PublicUpdateListField(),
+        ),
+        APIField(
+            "past_events",
+            serializer=PublicUpdateListField(),
+        ),
+    ]
+
+
+class ArticlePage(HeadlessPageMixin, PublicSEOMixin, Page):
+    class ArticleType(models.TextChoices):
+        INSIGHT = "insight", "Insight"
+        MILESTONE = "milestone", "Milestone"
+        UPDATE = "update", "Update"
+
+    parent_page_types = ["public_content.UpdatesIndexPage"]
+    subpage_types = []
+
+    article_type = models.CharField(
+        max_length=20,
+        choices=ArticleType.choices,
+        default=ArticleType.UPDATE,
+    )
+    summary = models.TextField(max_length=1000)
+    featured_image = models.ForeignKey(
+        "wagtailimages.Image",
+        null=True,
+        blank=False,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    featured_image_alt = models.CharField(max_length=255)
+    publication_date = models.DateField()
+    featured = models.BooleanField(default=False)
+    body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
+
+    content_panels = Page.content_panels + [
+        FieldPanel("article_type"),
+        FieldPanel("summary"),
+        FieldPanel("featured_image"),
+        FieldPanel("featured_image_alt"),
+        FieldPanel("publication_date"),
+        FieldPanel("featured"),
+        FieldPanel("body"),
+    ]
+    promote_panels = Page.promote_panels + [FieldPanel("social_image")]
+    search_fields = Page.search_fields + [
+        index.SearchField("summary"),
+        index.SearchField("body"),
+    ]
+    api_fields = PublicSEOMixin.seo_api_fields + [
+        APIField("article_type"),
+        APIField("summary"),
+        APIField(
+            "featured_image",
+            serializer=ControlledImageRenditionField(
+                "featured_image",
+                "featured_image_alt",
+                "fill-1920x1080",
+            ),
+        ),
+        APIField("publication_date"),
+        APIField("featured"),
+        APIField("body"),
+    ]
+
+
+class EventPage(HeadlessPageMixin, PublicSEOMixin, Page):
+    parent_page_types = ["public_content.UpdatesIndexPage"]
+    subpage_types = []
+
+    summary = models.TextField(max_length=1000)
+    featured_image = models.ForeignKey(
+        "wagtailimages.Image",
+        null=True,
+        blank=False,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    featured_image_alt = models.CharField(max_length=255)
+    start_date = models.DateField()
+    start_time = models.TimeField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    location = models.CharField(max_length=255, blank=True)
+    registration_url = models.URLField(max_length=500, blank=True)
+    featured = models.BooleanField(default=False)
+    body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
+
+    def clean(self):
+        super().clean()
+        effective_end_date = self.end_date or self.start_date
+        if effective_end_date < self.start_date:
+            raise ValidationError(
+                {"end_date": "End date cannot be before the start date."}
+            )
+        if (
+            self.start_time
+            and self.end_time
+            and effective_end_date == self.start_date
+            and self.end_time <= self.start_time
+        ):
+            raise ValidationError(
+                {"end_time": "End time must be after the start time."}
+            )
+
+    content_panels = Page.content_panels + [
+        FieldPanel("summary"),
+        FieldPanel("featured_image"),
+        FieldPanel("featured_image_alt"),
+        FieldPanel("start_date"),
+        FieldPanel("start_time"),
+        FieldPanel("end_date"),
+        FieldPanel("end_time"),
+        FieldPanel("location"),
+        FieldPanel("registration_url"),
+        FieldPanel("featured"),
+        FieldPanel("body"),
+    ]
+    promote_panels = Page.promote_panels + [FieldPanel("social_image")]
+    search_fields = Page.search_fields + [
+        index.SearchField("summary"),
+        index.SearchField("body"),
+        index.SearchField("location"),
+    ]
+    api_fields = PublicSEOMixin.seo_api_fields + [
+        APIField("summary"),
+        APIField(
+            "featured_image",
+            serializer=ControlledImageRenditionField(
+                "featured_image",
+                "featured_image_alt",
+                "fill-1920x1080",
+            ),
+        ),
+        APIField("start_date"),
+        APIField("start_time"),
+        APIField("end_date"),
+        APIField("end_time"),
+        APIField("location"),
+        APIField("registration_url"),
+        APIField("featured"),
+        APIField("body"),
+    ]
 
 
 class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):

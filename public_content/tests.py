@@ -1,9 +1,12 @@
 import base64
+from datetime import time, timedelta
 
 from django.contrib.auth.models import Group, Permission, User
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import resolve
+from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.images import get_image_model
 from wagtail.models import Page, Site
@@ -11,8 +14,10 @@ from wagtail.models import Page, Site
 from clients.permissions import PORTAL_STAFF_PERMISSION
 from .models import (
     AboutPage,
+    ArticlePage,
     CaseStudyPage,
     Collaborator,
+    EventPage,
     HomePage,
     HomePageCollaborator,
     HomePageFeaturedCaseStudy,
@@ -26,6 +31,7 @@ from .models import (
     SiteSettings,
     StandardPage,
     Testimonial,
+    UpdatesIndexPage,
 )
 
 
@@ -788,6 +794,320 @@ class PublicContentSecurityTests(TestCase):
                 "public_content.PortfolioIndexPage",
                 "public_content.PricingPage",
                 "public_content.AboutPage",
+                "public_content.UpdatesIndexPage",
                 "public_content.StandardPage",
             },
         )
+
+
+@override_settings(STORAGES=TEST_STORAGES)
+class UpdatesContentAPITests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        root = Page.get_first_root_node()
+        for existing_page in root.get_children():
+            existing_page.delete()
+
+        cls.site = Site.objects.filter(is_default_site=True).first()
+        if cls.site is None:
+            cls.site = Site.objects.create(
+                hostname="testserver",
+                port=80,
+                root_page=root,
+                is_default_site=True,
+            )
+        else:
+            cls.site.hostname = "testserver"
+            cls.site.port = 80
+
+        cls.image = get_image_model().objects.create(
+            title="Updates editorial image",
+            file=SimpleUploadedFile(
+                "updates.gif",
+                ONE_PIXEL_GIF,
+                content_type="image/gif",
+            ),
+        )
+        cls.home = HomePage(
+            title="LaBio Media",
+            slug="home",
+            hero_eyebrow="Creative production",
+            hero_heading="Stories with impact",
+            hero_copy="Public editorial copy.",
+            hero_image=cls.image,
+            hero_image_alt="A LaBio Media production",
+            primary_cta_label="View work",
+            primary_cta_url="https://example.com/work",
+            secondary_cta_label="Contact",
+            secondary_cta_url="https://example.com/contact",
+            about_heading="About LaBio",
+            about_copy="A public about teaser.",
+            about_image=cls.image,
+            about_image_alt="LaBio collaborators at work",
+            contact_heading="Start a project",
+            contact_copy="Public contact copy.",
+            contact_cta_label="Get in touch",
+            contact_cta_url="https://example.com/contact",
+        )
+        root.add_child(instance=cls.home)
+        cls.home.save_revision().publish()
+        cls.site.root_page = cls.home
+        cls.site.save()
+
+        cls.index = UpdatesIndexPage(
+            title="Updates",
+            slug="updates",
+            seo_title="LaBio Media updates",
+            search_description="Insights, milestones, updates and events.",
+        )
+        cls.home.add_child(instance=cls.index)
+        cls.index.save_revision().publish()
+
+        today = timezone.localdate()
+        cls.newest_article = cls._add_article(
+            title="Newest insight",
+            slug="newest-insight",
+            article_type=ArticlePage.ArticleType.INSIGHT,
+            publication_date=today - timedelta(days=1),
+            featured=True,
+        )
+        cls.older_article = cls._add_article(
+            title="Earlier milestone",
+            slug="earlier-milestone",
+            article_type=ArticlePage.ArticleType.MILESTONE,
+            publication_date=today - timedelta(days=10),
+        )
+        cls.draft_article = cls._add_article(
+            title="Draft update",
+            slug="draft-update",
+            article_type=ArticlePage.ArticleType.UPDATE,
+            publication_date=today,
+            publish=False,
+        )
+
+        cls.nearest_event = cls._add_event(
+            title="Nearest event",
+            slug="nearest-event",
+            start_date=today + timedelta(days=2),
+            start_time=time(9, 30),
+        )
+        cls.later_event = cls._add_event(
+            title="Later event",
+            slug="later-event",
+            start_date=today + timedelta(days=20),
+            start_time=time(14, 0),
+            end_date=today + timedelta(days=21),
+            end_time=time(16, 0),
+        )
+        cls.past_event = cls._add_event(
+            title="Past event",
+            slug="past-event",
+            start_date=today - timedelta(days=7),
+            start_time=time(12, 0),
+            end_date=today - timedelta(days=7),
+            end_time=time(14, 0),
+        )
+        cls.draft_event = cls._add_event(
+            title="Draft event",
+            slug="draft-event",
+            start_date=today + timedelta(days=1),
+            publish=False,
+        )
+
+    @classmethod
+    def _add_article(
+        cls,
+        *,
+        title,
+        slug,
+        article_type,
+        publication_date,
+        featured=False,
+        publish=True,
+    ):
+        page = ArticlePage(
+            title=title,
+            slug=slug,
+            article_type=article_type,
+            summary=f"Summary for {title}.",
+            featured_image=cls.image,
+            featured_image_alt=f"Editorial image for {title}",
+            publication_date=publication_date,
+            featured=featured,
+            body=[("rich_text", f"<p>Body for {title}.</p>")],
+            seo_title=f"{title} | LaBio Media",
+            search_description=f"Search description for {title}.",
+            live=False,
+        )
+        cls.index.add_child(instance=page)
+        revision = page.save_revision()
+        if publish:
+            revision.publish()
+        return page
+
+    @classmethod
+    def _add_event(
+        cls,
+        *,
+        title,
+        slug,
+        start_date,
+        start_time=None,
+        end_date=None,
+        end_time=None,
+        publish=True,
+    ):
+        page = EventPage(
+            title=title,
+            slug=slug,
+            summary=f"Summary for {title}.",
+            featured_image=cls.image,
+            featured_image_alt=f"Editorial image for {title}",
+            start_date=start_date,
+            start_time=start_time,
+            end_date=end_date,
+            end_time=end_time,
+            location="Helsinki, Finland",
+            registration_url="https://example.com/register",
+            featured=False,
+            body=[("rich_text", f"<p>Body for {title}.</p>")],
+            seo_title=f"{title} | LaBio Media",
+            search_description=f"Search description for {title}.",
+            live=False,
+        )
+        cls.index.add_child(instance=page)
+        revision = page.save_revision()
+        if publish:
+            revision.publish()
+        return page
+
+    def test_updates_page_hierarchy_is_constrained(self):
+        self.assertEqual(UpdatesIndexPage.max_count, 1)
+        self.assertEqual(
+            UpdatesIndexPage.parent_page_types,
+            ["public_content.HomePage"],
+        )
+        self.assertEqual(
+            set(UpdatesIndexPage.subpage_types),
+            {"public_content.ArticlePage", "public_content.EventPage"},
+        )
+        self.assertEqual(
+            ArticlePage.parent_page_types,
+            ["public_content.UpdatesIndexPage"],
+        )
+        self.assertEqual(ArticlePage.subpage_types, [])
+        self.assertEqual(
+            EventPage.parent_page_types,
+            ["public_content.UpdatesIndexPage"],
+        )
+        self.assertEqual(EventPage.subpage_types, [])
+
+    def test_index_serializes_published_content_in_editorial_order(self):
+        response = self.client.get(f"/api/cms/v2/pages/{self.index.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(
+            [item["id"] for item in data["articles"]],
+            [self.newest_article.pk, self.older_article.pk],
+        )
+        self.assertEqual(
+            [item["id"] for item in data["upcoming_events"]],
+            [self.nearest_event.pk, self.later_event.pk],
+        )
+        self.assertEqual(
+            [item["id"] for item in data["past_events"]],
+            [self.past_event.pk],
+        )
+        exposed_ids = {
+            item["id"]
+            for field in ("articles", "upcoming_events", "past_events")
+            for item in data[field]
+        }
+        self.assertNotIn(self.draft_article.pk, exposed_ids)
+        self.assertNotIn(self.draft_event.pk, exposed_ids)
+
+    def test_article_detail_uses_safe_existing_serialization(self):
+        response = self.client.get(
+            f"/api/cms/v2/pages/{self.newest_article.pk}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["article_type"], "insight")
+        self.assertEqual(data["summary"], "Summary for Newest insight.")
+        self.assertTrue(data["featured"])
+        self.assertEqual(
+            set(data["featured_image"]),
+            {"url", "width", "height", "alt"},
+        )
+        self.assertEqual(
+            data["featured_image"]["alt"],
+            "Editorial image for Newest insight",
+        )
+        self.assertEqual(data["body"][0]["type"], "rich_text")
+        self.assertEqual(
+            data["meta"]["seo_title"],
+            "Newest insight | LaBio Media",
+        )
+        self.assertEqual(
+            data["meta"]["search_description"],
+            "Search description for Newest insight.",
+        )
+
+    def test_event_detail_serializes_dates_location_and_registration(self):
+        response = self.client.get(
+            f"/api/cms/v2/pages/{self.later_event.pk}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["summary"], "Summary for Later event.")
+        self.assertEqual(data["start_time"], "14:00:00")
+        self.assertEqual(data["end_time"], "16:00:00")
+        self.assertEqual(data["location"], "Helsinki, Finland")
+        self.assertEqual(
+            data["registration_url"],
+            "https://example.com/register",
+        )
+        self.assertEqual(
+            set(data["featured_image"]),
+            {"url", "width", "height", "alt"},
+        )
+        self.assertEqual(data["body"][0]["type"], "rich_text")
+
+    def test_drafts_are_hidden_but_past_events_remain_accessible(self):
+        self.assertEqual(
+            self.client.get(
+                f"/api/cms/v2/pages/{self.draft_article.pk}/"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/api/cms/v2/pages/{self.draft_event.pk}/"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                f"/api/cms/v2/pages/{self.past_event.pk}/"
+            ).status_code,
+            200,
+        )
+
+    def test_event_rejects_an_end_before_its_start(self):
+        event = EventPage(
+            title="Invalid event",
+            summary="Invalid chronology.",
+            featured_image=self.image,
+            featured_image_alt="Invalid event image",
+            start_date=timezone.localdate(),
+            end_date=timezone.localdate() - timedelta(days=1),
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "End date cannot be before the start date.",
+        ):
+            event.clean()
