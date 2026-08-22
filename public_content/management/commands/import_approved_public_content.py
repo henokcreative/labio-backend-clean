@@ -26,6 +26,7 @@ from public_content.models import (
     HomePageCollaborator,
     HomePageFeaturedCaseStudy,
     HomePageFeaturedService,
+    HomePageTestimonial,
     PortfolioIndexPage,
     PricingItem,
     PricingPage,
@@ -161,13 +162,14 @@ class Command(BaseCommand):
             self._upsert_pricing_items(pricing)
 
             collaborators = self._upsert_collaborators(images)
+            testimonials = self._upsert_testimonials(services, case_studies)
             self._upsert_home_relations(
                 home,
                 services,
                 case_studies,
                 collaborators,
+                testimonials,
             )
-            self._upsert_testimonials(services, case_studies)
             self._upsert_site_settings(site)
 
         summary = ", ".join(
@@ -381,6 +383,7 @@ class Command(BaseCommand):
         services,
         case_studies,
         collaborators,
+        testimonials,
     ):
         self._replace_ordered_relations(
             home.featured_services,
@@ -402,6 +405,13 @@ class Command(BaseCommand):
             home,
             "collaborator",
             collaborators,
+        )
+        self._replace_ordered_relations(
+            home.homepage_testimonials,
+            HomePageTestimonial,
+            home,
+            "testimonial",
+            testimonials,
         )
         home.save_revision().publish()
 
@@ -456,6 +466,7 @@ class Command(BaseCommand):
         pricing.save_revision().publish()
 
     def _upsert_testimonials(self, services, case_studies):
+        testimonials = []
         for content in MOCK_TESTIMONIALS:
             testimonial = Testimonial.objects.filter(
                 person=content["person"]
@@ -476,8 +487,10 @@ class Command(BaseCommand):
             testimonial.full_clean()
             testimonial.save()
             testimonial.save_revision().publish()
+            testimonials.append(testimonial)
             key = "testimonials_created" if created else "testimonials_updated"
             self.stats[key] += 1
+        return testimonials
 
     @staticmethod
     def _upsert_site_settings(site):
