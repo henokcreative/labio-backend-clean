@@ -16,10 +16,11 @@ from unittest.mock import Mock, patch
 
 from cloudinary import CloudinaryResource
 from messaging.models import Conversation, Message
-from .admin import ProjectAdmin
+from .admin import ApprovalAdmin, ProjectAdmin
 from .models import Approval, Client, Project, ProjectFile
 from .portal_views import ProjectViewSet
 from .permissions import PORTAL_STAFF_PERMISSION
+from .project_files import StoredProjectFile
 from .services import (
     password_reset_url,
     send_invitation_email,
@@ -219,6 +220,47 @@ class PasswordResetTests(TestCase):
 
 
 class ProjectAdminTests(TestCase):
+    def create_admin_approval(self, *, project, staff, upload):
+        uploaded_file = SimpleUploadedFile(
+            "approval.pdf",
+            b"%PDF-1.7 approval",
+            content_type="application/pdf",
+        )
+        upload.return_value = StoredProjectFile(
+            resource=CloudinaryResource(
+                f"projects/{project.id}/admin-approval",
+                resource_type="image",
+                type="authenticated",
+                format="pdf",
+            ),
+            asset_id=f"admin-approval-{project.id}",
+            public_id=f"projects/{project.id}/admin-approval",
+            resource_type="image",
+            delivery_type="authenticated",
+            provider_format="pdf",
+            version=1,
+            size_bytes=uploaded_file.size,
+        )
+        project_file = ProjectFile(
+            project=project,
+            file=uploaded_file,
+            category=ProjectFile.Category.APPROVAL,
+        )
+        formset = Mock()
+        formset.save.return_value = [project_file]
+        request = RequestFactory().post(
+            f"/admin/clients/project/{project.pk}/change/"
+        )
+        request.user = staff
+
+        ProjectAdmin(Project, admin.site).save_formset(
+            request,
+            form=None,
+            formset=formset,
+            change=True,
+        )
+        return ProjectFile.objects.get(project=project)
+
     @patch("clients.admin.create_project_file")
     def test_inline_file_upload_records_logged_in_staff_as_uploader(self, create_file):
         staff = User.objects.create_superuser(
@@ -297,6 +339,151 @@ class ProjectAdminTests(TestCase):
         self.assertEqual(approval.project, project)
         self.assertEqual(approval.client, client)
         self.assertEqual(approval.status, Approval.Status.PENDING)
+
+    @patch("clients.project_files.CloudinaryProjectFileProvider.upload")
+    def test_real_admin_approval_is_actionable_from_dashboard_to_approval(self, upload):
+        staff = User.objects.create_superuser(
+            "admin-approval",
+            "admin-approval@example.com",
+            "Password!123",
+        )
+        client_user = User.objects.create_user(
+            "approval-client@example.com",
+            "approval-client@example.com",
+            "Password!123",
+        )
+        client = Client.objects.create(
+            name="Approval Client",
+            email="approval-client@example.com",
+            user=client_user,
+        )
+        project = Project.objects.create(client=client, title="Approval Project")
+        project_file = self.create_admin_approval(
+            project=project,
+            staff=staff,
+            upload=upload,
+        )
+        approval = Approval.objects.get(file=project_file)
+        api = APIClient()
+        api.force_authenticate(client_user)
+
+        dashboard = api.get("/api/auth/dashboard/")
+
+        self.assertEqual(approval.status, Approval.Status.PENDING)
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(dashboard.data["pending_approval_count"], 1)
+        self.assertEqual(len(dashboard.data["pending_approvals"]), 1)
+        self.assertEqual(dashboard.data["pending_approvals"][0]["project"], project.id)
+        self.assertEqual(dashboard.data["pending_approvals"][0]["file"], project_file.id)
+
+        response = api.post(
+            f"/api/projects/{project.id}/approve/",
+            {"file_id": project_file.id, "status": Approval.Status.APPROVED},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            api.get("/api/auth/dashboard/").data["pending_approval_count"],
+            0,
+        )
+
+    @patch("clients.project_files.CloudinaryProjectFileProvider.upload")
+    def test_real_admin_approval_can_request_changes(self, upload):
+        staff = User.objects.create_superuser(
+            "admin-changes",
+            "admin-changes@example.com",
+            "Password!123",
+        )
+        client_user = User.objects.create_user(
+            "changes-client@example.com",
+            "changes-client@example.com",
+            "Password!123",
+        )
+        client = Client.objects.create(
+            name="Changes Client",
+            email="changes-client@example.com",
+            user=client_user,
+        )
+        project = Project.objects.create(client=client, title="Changes Project")
+        project_file = self.create_admin_approval(
+            project=project,
+            staff=staff,
+            upload=upload,
+        )
+        api = APIClient()
+        api.force_authenticate(client_user)
+
+        response = api.post(
+            f"/api/projects/{project.id}/approve/",
+            {
+                "file_id": project_file.id,
+                "status": Approval.Status.CHANGES_REQUESTED,
+                "comment": "Please revise the opening.",
+            },
+            format="json",
+        )
+
+        approval = Approval.objects.get(file=project_file)
+        project.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(approval.status, Approval.Status.CHANGES_REQUESTED)
+        self.assertEqual(approval.comment, "Please revise the opening.")
+        self.assertEqual(project.status, "review")
+        self.assertEqual(
+            api.get("/api/auth/dashboard/").data["pending_approval_count"],
+            0,
+        )
+
+    @patch("clients.project_files.CloudinaryProjectFileProvider.upload")
+    def test_file_project_is_the_actionable_project_source_of_truth(self, upload):
+        staff = User.objects.create_superuser(
+            "admin-source",
+            "admin-source@example.com",
+            "Password!123",
+        )
+        client_user = User.objects.create_user(
+            "source-client@example.com",
+            "source-client@example.com",
+            "Password!123",
+        )
+        client = Client.objects.create(
+            name="Source Client",
+            email="source-client@example.com",
+            user=client_user,
+        )
+        project = Project.objects.create(client=client, title="Current Project")
+        unrelated_project = Project.objects.create(
+            client=client,
+            title="Stale Approval Project",
+        )
+        project_file = self.create_admin_approval(
+            project=project,
+            staff=staff,
+            upload=upload,
+        )
+        approval = Approval.objects.get(file=project_file)
+        Approval.objects.filter(pk=approval.pk).update(project=unrelated_project)
+        api = APIClient()
+        api.force_authenticate(client_user)
+
+        dashboard = api.get("/api/auth/dashboard/")
+
+        self.assertEqual(dashboard.data["pending_approval_count"], 1)
+        self.assertEqual(dashboard.data["pending_approvals"][0]["project"], project.id)
+        response = api.post(
+            f"/api/projects/{project.id}/approve/",
+            {"file_id": project_file.id, "status": Approval.Status.APPROVED},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_approval_admin_relationships_are_not_manually_created_or_changed(self):
+        model_admin = ApprovalAdmin(Approval, admin.site)
+
+        self.assertFalse(model_admin.has_add_permission(RequestFactory().get("/admin/")))
+        self.assertTrue(
+            {"project", "file", "client"}.issubset(model_admin.readonly_fields)
+        )
 
 
 class PortalPermissionTests(TestCase):

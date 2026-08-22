@@ -193,3 +193,7 @@ class ApprovalAdmin(admin.ModelAdmin):
     list_display = ["project", "file", "client", "status", "updated_at"]
     list_filter = ["status"]
     search_fields = ["project__title", "file__filename", "client__name"]
+    readonly_fields = ["project", "file", "client", "created_at", "updated_at"]
+
+    def has_add_permission(self, request):
+        return False

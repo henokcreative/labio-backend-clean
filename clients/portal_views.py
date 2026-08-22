@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from messaging.models import Conversation, Message
 from messaging.serializers import MessageSerializer
+from .approval_workflow import actionable_approvals_for_client
 from .models import Approval, Client, Project, ProjectFile
 from .permissions import (
     IsPortalStaff,
@@ -132,11 +133,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Only the client can approve deliverables."}, status=status.HTTP_403_FORBIDDEN)
         file_id = request.data.get("file_id")
         try:
-            approval = project.approvals.get(
+            approval = actionable_approvals_for_client(project.client).get(
                 file_id=file_id,
-                file__category=ProjectFile.Category.APPROVAL,
-                client=project.client,
-                status=Approval.Status.PENDING,
+                file__project=project,
             )
         except Approval.DoesNotExist:
             return Response({"detail": "Pending approval not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -148,7 +147,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
         approval.save(update_fields=["status", "comment", "updated_at"])
         if status_value == Approval.Status.CHANGES_REQUESTED:
             project.status = "review"
-        elif project.approvals.filter(status=Approval.Status.PENDING).exists():
+        elif actionable_approvals_for_client(project.client).filter(
+            file__project=project
+        ).exists():
             project.status = "approval"
         else:
             project.status = "completed"
@@ -252,12 +253,10 @@ class DashboardViewSet(viewsets.ViewSet):
             project__client=client,
             category=ProjectFile.Category.FINAL_DELIVERY,
         ).select_related("project")
-        approvals = Approval.objects.filter(
-            client=client,
-            project__client=client,
-            file__project=F("project"),
-            status=Approval.Status.PENDING,
-        ).select_related("project", "file")
+        approvals = actionable_approvals_for_client(client).select_related(
+            "file",
+            "file__project",
+        )
         all_messages = Message.objects.filter(conversation__client=request.user)
         messages = all_messages.exclude(sender=request.user).select_related(
             "conversation",

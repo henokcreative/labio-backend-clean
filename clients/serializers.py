@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from .approval_workflow import actionable_approvals_for_client
 from .models import Approval, Client, Project, ProjectFile
 from .permissions import has_portal_staff_access
 
@@ -129,16 +130,21 @@ class ProjectFileSerializer(serializers.ModelSerializer):
         if obj.category != ProjectFile.Category.APPROVAL:
             return False
         approvals = obj.approvals.filter(
-            project_id=obj.project_id,
+            client=obj.project.client,
             status=Approval.Status.PENDING,
         )
         request = self.context.get("request")
         if request and not has_portal_staff_access(request.user):
-            approvals = approvals.filter(client__user=request.user)
+            try:
+                client = request.user.client_profile
+            except Client.DoesNotExist:
+                return False
+            return actionable_approvals_for_client(client).filter(file=obj).exists()
         return approvals.exists()
 
 
 class ApprovalSerializer(serializers.ModelSerializer):
+    project = serializers.IntegerField(source="file.project_id", read_only=True)
     file_name = serializers.CharField(source="file.filename", read_only=True)
 
     class Meta:
