@@ -1,10 +1,83 @@
+from unittest.mock import Mock
+
+from django.contrib import admin
 from django.contrib.auth.models import Permission, User
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from rest_framework.test import APIClient
 
 from clients.models import Client
 from clients.permissions import PORTAL_STAFF_PERMISSION
+from .admin import ConversationAdmin
 from .models import Conversation, Message
+
+
+class ConversationAdminMessageInlineTests(TestCase):
+    def setUp(self):
+        self.client_user = User.objects.create_user(
+            "client@example.com",
+            "client@example.com",
+            "Password!123",
+        )
+        self.staff_user = User.objects.create_user(
+            "admin",
+            "admin@example.com",
+            "Password!123",
+            is_staff=True,
+        )
+        self.conversation = Conversation.objects.create(
+            client=self.client_user,
+            subject="Admin reply",
+        )
+        self.request = RequestFactory().post(
+            f"/admin/messaging/conversation/{self.conversation.pk}/change/"
+        )
+        self.request.user = self.staff_user
+        self.model_admin = ConversationAdmin(Conversation, admin.site)
+
+    @staticmethod
+    def formset_for(instances):
+        formset = Mock()
+        formset.save.return_value = instances
+        formset.deleted_objects = []
+        return formset
+
+    def test_new_inline_message_records_logged_in_staff_as_sender(self):
+        message = Message(
+            conversation=self.conversation,
+            body="A reply created in Django Admin",
+        )
+        formset = self.formset_for([message])
+
+        self.model_admin.save_formset(
+            self.request,
+            form=None,
+            formset=formset,
+            change=True,
+        )
+
+        saved_message = Message.objects.get(conversation=self.conversation)
+        self.assertEqual(saved_message.sender, self.staff_user)
+        formset.save.assert_called_once_with(commit=False)
+        formset.save_m2m.assert_called_once_with()
+
+    def test_existing_inline_message_retains_original_sender(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.client_user,
+            body="Original client message",
+        )
+        message.body = "Edited body"
+        formset = self.formset_for([message])
+
+        self.model_admin.save_formset(
+            self.request,
+            form=None,
+            formset=formset,
+            change=True,
+        )
+
+        message.refresh_from_db()
+        self.assertEqual(message.sender, self.client_user)
 
 
 class MessagingPortalStaffPermissionTests(TestCase):

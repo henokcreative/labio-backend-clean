@@ -14,6 +14,16 @@ class ConversationAdmin(admin.ModelAdmin):
     search_fields = ['subject', 'client__username']
     ordering = ['-updated_at']
 
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for deleted_object in formset.deleted_objects:
+            deleted_object.delete()
+        for instance in instances:
+            if isinstance(instance, Message) and instance.pk is None:
+                instance.sender = request.user
+            instance.save()
+        formset.save_m2m()
+
     def message_count(self, obj):
         return obj.messages.count()
     message_count.short_description = 'Messages'
