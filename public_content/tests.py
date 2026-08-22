@@ -14,6 +14,7 @@ from wagtail.models import Page, Site
 from clients.permissions import PORTAL_STAFF_PERMISSION
 from .models import (
     AboutPage,
+    AboutPageTestimonial,
     ArticlePage,
     CaseStudyPage,
     Collaborator,
@@ -313,6 +314,19 @@ class PublicContentSecurityTests(TestCase):
         ):
             HomePageTestimonial.objects.create(
                 page=cls.home,
+                testimonial=testimonial,
+                sort_order=sort_order,
+            )
+        for sort_order, testimonial in enumerate(
+            (
+                cls.draft_testimonial,
+                cls.second_published_testimonial,
+                cls.inactive_testimonial,
+                cls.published_testimonial,
+            )
+        ):
+            AboutPageTestimonial.objects.create(
+                page=cls.about,
                 testimonial=testimonial,
                 sort_order=sort_order,
             )
@@ -620,6 +634,19 @@ class PublicContentSecurityTests(TestCase):
             home_data["about_cta_url"],
             "https://labiomedia.com/about",
         )
+        self.assertTrue(home_data["updates_enabled"])
+        self.assertEqual(home_data["updates_eyebrow"], "From LaBio")
+        self.assertEqual(
+            home_data["updates_heading"],
+            "A few notes, ideas and milestones.",
+        )
+        self.assertEqual(home_data["updates_item_count"], 3)
+        self.assertEqual(home_data["updates_cta_label"], "View all updates")
+        self.assertEqual(
+            home_data["updates_cta_url"],
+            "https://labiomedia.com/updates",
+        )
+        self.assertEqual(home_data["latest_updates"], [])
         self.assertTrue(home_data["contact_enabled"])
         self.assertEqual(home_data["contact_eyebrow"], "Contact")
         self.assertEqual(
@@ -635,6 +662,49 @@ class PublicContentSecurityTests(TestCase):
             [item["id"] for item in responses[self.case_study.pk]["services"]],
             [self.service.pk],
         )
+
+        about_data = responses[self.about.pk]
+        self.assertEqual(about_data["page_eyebrow"], "About LaBio Media")
+        self.assertEqual(about_data["values_label"], "Values")
+        self.assertEqual(about_data["process_label"], "How we work")
+        self.assertTrue(about_data["testimonials_enabled"])
+        self.assertEqual(
+            about_data["testimonials_heading"],
+            "Client perspectives",
+        )
+        self.assertEqual(
+            [item["id"] for item in about_data["testimonials"]],
+            [
+                self.second_published_testimonial.pk,
+                self.published_testimonial.pk,
+            ],
+        )
+        self.assertEqual(
+            set(about_data["hero_image"]),
+            {"url", "width", "height", "alt"},
+        )
+        self.assertEqual(about_data["hero_image"]["alt"], "The LaBio Media team")
+
+    def test_about_testimonial_selection_can_be_empty_or_disabled(self):
+        AboutPageTestimonial.objects.filter(page=self.about).delete()
+        response = self.client.get(f"/api/cms/v2/pages/{self.about.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["testimonials_enabled"])
+        self.assertEqual(response.json()["testimonials"], [])
+
+        AboutPageTestimonial.objects.create(
+            page=self.about,
+            testimonial=self.published_testimonial,
+            sort_order=0,
+        )
+        self.about.testimonials_enabled = False
+        self.about.save_revision().publish()
+        response = self.client.get(f"/api/cms/v2/pages/{self.about.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["testimonials_enabled"])
+        self.assertEqual(response.json()["testimonials"], [])
 
     def test_homepage_can_disable_collaborator_section(self):
         self.home.collaborators_enabled = False
@@ -654,6 +724,7 @@ class PublicContentSecurityTests(TestCase):
             "testimonials_enabled",
             "about_enabled",
             "contact_enabled",
+            "updates_enabled",
         ):
             setattr(self.home, field_name, False)
         self.home.save_revision().publish()
@@ -669,6 +740,7 @@ class PublicContentSecurityTests(TestCase):
             "testimonials_enabled",
             "about_enabled",
             "contact_enabled",
+            "updates_enabled",
         ):
             self.assertFalse(response.json()[field_name])
 
@@ -913,6 +985,19 @@ class UpdatesContentAPITests(TestCase):
             start_date=today + timedelta(days=1),
             publish=False,
         )
+        published_at = timezone.now()
+        for offset, page in enumerate(
+            (
+                cls.newest_article,
+                cls.nearest_event,
+                cls.older_article,
+                cls.later_event,
+                cls.past_event,
+            )
+        ):
+            Page.objects.filter(pk=page.pk).update(
+                first_published_at=published_at - timedelta(minutes=offset)
+            )
 
     @classmethod
     def _add_article(
@@ -1026,6 +1111,57 @@ class UpdatesContentAPITests(TestCase):
         }
         self.assertNotIn(self.draft_article.pk, exposed_ids)
         self.assertNotIn(self.draft_event.pk, exposed_ids)
+
+    def test_homepage_serializes_latest_published_updates_with_controls(self):
+        response = self.client.get(f"/api/cms/v2/pages/{self.home.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["updates_enabled"])
+        self.assertEqual(data["updates_eyebrow"], "From LaBio")
+        self.assertEqual(
+            data["updates_heading"],
+            "A few notes, ideas and milestones.",
+        )
+        self.assertEqual(data["updates_item_count"], 3)
+        self.assertEqual(data["updates_cta_label"], "View all updates")
+        self.assertEqual(
+            data["updates_cta_url"],
+            "https://labiomedia.com/updates",
+        )
+        self.assertEqual(
+            [item["id"] for item in data["latest_updates"]],
+            [
+                self.newest_article.pk,
+                self.nearest_event.pk,
+                self.older_article.pk,
+            ],
+        )
+        self.assertEqual(
+            [item["kind"] for item in data["latest_updates"]],
+            ["article", "event", "article"],
+        )
+        self.assertNotIn(
+            self.draft_article.pk,
+            [item["id"] for item in data["latest_updates"]],
+        )
+
+    def test_homepage_latest_updates_respects_count_and_disabled_state(self):
+        self.home.updates_item_count = 1
+        self.home.save_revision().publish()
+        response = self.client.get(f"/api/cms/v2/pages/{self.home.pk}/")
+
+        self.assertEqual(
+            [item["id"] for item in response.json()["latest_updates"]],
+            [self.newest_article.pk],
+        )
+
+        self.home.updates_enabled = False
+        self.home.save_revision().publish()
+        response = self.client.get(f"/api/cms/v2/pages/{self.home.pk}/")
+
+        self.assertFalse(response.json()["updates_enabled"])
+        self.assertEqual(response.json()["latest_updates"], [])
 
     def test_article_detail_uses_safe_existing_serialization(self):
         response = self.client.get(
