@@ -122,7 +122,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             "expires_at": int(time()) + 300,
         }
         if attachment:
-            options["attachment"] = project_file.filename
+            options["attachment"] = True
         return private_download_url(public_id, resource_format, **options)
 
     @action(detail=True, methods=["post"], url_path="approve")

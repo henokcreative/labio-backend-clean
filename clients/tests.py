@@ -515,7 +515,7 @@ class PortalPermissionTests(TestCase):
             resource_type="raw",
             type="private",
             expires_at=signed_url.call_args.kwargs["expires_at"],
-            attachment="client-a-preview.pdf",
+            attachment=True,
         )
 
     @patch("clients.portal_views.private_download_url", return_value="https://signed.example/file")
