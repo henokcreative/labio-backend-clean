@@ -386,6 +386,42 @@ class PublicContentSecurityTests(TestCase):
                     },
                 )
             ],
+            navigation_links=[
+                (
+                    "navigation_link",
+                    {
+                        "label": "About",
+                        "page": cls.about,
+                        "enabled": True,
+                        "external": False,
+                    },
+                ),
+                (
+                    "navigation_link",
+                    {
+                        "label": "External",
+                        "url": "https://example.org/updates",
+                        "enabled": True,
+                        "external": True,
+                    },
+                ),
+                (
+                    "navigation_link",
+                    {
+                        "label": "Disabled",
+                        "url": "https://example.org/disabled",
+                        "enabled": False,
+                    },
+                ),
+                (
+                    "navigation_link",
+                    {
+                        "label": "Draft",
+                        "page": cls.draft_page,
+                        "enabled": True,
+                    },
+                ),
+            ],
             default_social_image=cls.image,
         )
 
@@ -534,6 +570,7 @@ class PublicContentSecurityTests(TestCase):
                 "default_cta_label",
                 "default_cta_url",
                 "social_links",
+                "navigation_links",
                 "default_social_image",
             },
         )
@@ -545,6 +582,28 @@ class PublicContentSecurityTests(TestCase):
         self.assertEqual(response.json()["business_id"], "1234567-8")
         self.assertEqual(response.json()["city"], "Turku")
         self.assertEqual(response.json()["country"], "Finland")
+        self.assertEqual(
+            response.json()["navigation_links"],
+            [
+                {
+                    "label": "About",
+                    "url": "",
+                    "page": {
+                        "id": self.about.pk,
+                        "title": "About",
+                        "slug": "about",
+                        "type": "public_content.AboutPage",
+                    },
+                    "external": False,
+                },
+                {
+                    "label": "External",
+                    "url": "https://example.org/updates",
+                    "page": None,
+                    "external": True,
+                },
+            ],
+        )
 
     def test_settings_endpoint_uses_empty_public_identity_without_settings(self):
         SiteSettings.objects.all().delete()
@@ -562,6 +621,7 @@ class PublicContentSecurityTests(TestCase):
             "address",
         ):
             self.assertEqual(response.json()[field_name], "")
+        self.assertEqual(response.json()["navigation_links"], [])
 
     def test_cms_api_is_json_read_only_and_requires_no_jwt(self):
         for url in (

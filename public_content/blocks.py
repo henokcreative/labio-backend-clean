@@ -115,6 +115,29 @@ class SocialLinkBlock(blocks.StructBlock):
         label = "Social link"
 
 
+class NavigationLinkBlock(blocks.StructBlock):
+    label = blocks.CharBlock(max_length=100)
+    page = blocks.PageChooserBlock(required=False)
+    url = blocks.URLBlock(required=False)
+    enabled = blocks.BooleanBlock(required=False, default=True)
+    external = blocks.BooleanBlock(required=False, default=False)
+
+    def clean(self, value):
+        cleaned = super().clean(value)
+        has_page = bool(cleaned.get("page"))
+        has_url = bool(cleaned.get("url"))
+        if has_page == has_url:
+            message = "Choose an internal page or enter one external URL."
+            raise blocks.StructBlockValidationError(
+                non_block_errors=[message],
+            )
+        return cleaned
+
+    class Meta:
+        icon = "link"
+        label = "Navigation link"
+
+
 class PublicBodyBlock(blocks.StreamBlock):
     heading = HeadingBlock()
     rich_text = PublicRichTextBlock()
