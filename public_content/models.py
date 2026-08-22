@@ -67,6 +67,7 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         "public_content.ServiceIndexPage",
         "public_content.PortfolioIndexPage",
         "public_content.AboutPage",
+        "public_content.ContactPage",
         "public_content.PricingPage",
         "public_content.UpdatesIndexPage",
         "public_content.StandardPage",
@@ -903,6 +904,28 @@ class StandardPage(HeadlessPageMixin, PublicSEOMixin, Page):
     content_panels = Page.content_panels + [FieldPanel("body")]
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
     api_fields = PublicSEOMixin.seo_api_fields + [APIField("body")]
+
+
+class ContactPage(HeadlessPageMixin, PublicSEOMixin, Page):
+    max_count = 1
+    parent_page_types = ["public_content.HomePage"]
+    subpage_types = []
+
+    eyebrow = models.CharField(max_length=150, default="Contact")
+    intro = models.TextField(max_length=1500)
+    body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
+
+    content_panels = Page.content_panels + [
+        FieldPanel("eyebrow"),
+        FieldPanel("intro"),
+        FieldPanel("body"),
+    ]
+    promote_panels = Page.promote_panels + [FieldPanel("social_image")]
+    api_fields = PublicSEOMixin.seo_api_fields + [
+        APIField("eyebrow"),
+        APIField("intro"),
+        APIField("body"),
+    ]
 
 
 class PricingPage(HeadlessPageMixin, PublicSEOMixin, Page):

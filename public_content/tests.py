@@ -18,6 +18,7 @@ from .models import (
     ArticlePage,
     CaseStudyPage,
     Collaborator,
+    ContactPage,
     EventPage,
     HomePage,
     HomePageCollaborator,
@@ -157,6 +158,19 @@ class PublicContentSecurityTests(TestCase):
         )
         cls.home.add_child(instance=cls.about)
         cls.about.save_revision().publish()
+
+        cls.contact = ContactPage(
+            title="Contact",
+            slug="contact",
+            eyebrow="Start a conversation",
+            intro="Tell us about the research communication you need.",
+            body=[
+                ("heading", {"text": "A thoughtful first conversation", "level": "h2"}),
+                ("rich_text", "<p>Share a little context and we will respond.</p>"),
+            ],
+        )
+        cls.home.add_child(instance=cls.contact)
+        cls.contact.save_revision().publish()
 
         cls.pricing = PricingPage(
             title="Pricing",
@@ -590,6 +604,7 @@ class PublicContentSecurityTests(TestCase):
             self.portfolio_index,
             self.case_study,
             self.about,
+            self.contact,
             self.pricing,
             self.published_page,
         )
@@ -759,6 +774,17 @@ class PublicContentSecurityTests(TestCase):
         self.assertEqual(
             set(about_data["hero_image"]),
             {"url", "width", "height", "alt"},
+        )
+
+        contact_data = responses[self.contact.pk]
+        self.assertEqual(contact_data["eyebrow"], "Start a conversation")
+        self.assertEqual(
+            contact_data["intro"],
+            "Tell us about the research communication you need.",
+        )
+        self.assertEqual(
+            [block["type"] for block in contact_data["body"]],
+            ["heading", "rich_text"],
         )
         self.assertEqual(about_data["hero_image"]["alt"], "The LaBio Media team")
 
@@ -1071,9 +1097,20 @@ class PublicContentSecurityTests(TestCase):
                 "public_content.PortfolioIndexPage",
                 "public_content.PricingPage",
                 "public_content.AboutPage",
+                "public_content.ContactPage",
                 "public_content.UpdatesIndexPage",
                 "public_content.StandardPage",
             },
+        )
+        self.assertEqual(ContactPage.parent_page_types, ["public_content.HomePage"])
+        self.assertEqual(ContactPage.subpage_types, [])
+        self.assertEqual(
+            StandardPage.parent_page_types,
+            ["public_content.HomePage", "public_content.StandardPage"],
+        )
+        self.assertEqual(
+            StandardPage.subpage_types,
+            ["public_content.StandardPage"],
         )
 
 
