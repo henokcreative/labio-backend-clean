@@ -76,6 +76,12 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    # The production API is reached through Render's single trusted proxy.
+    # Local development ignores forwarded headers by default.
+    'NUM_PROXIES': int(os.environ.get(
+        'DRF_NUM_PROXIES',
+        '1' if IS_PRODUCTION else '0',
+    )),
 }
 
 SECRET_KEY = required_setting("SECRET_KEY")
@@ -198,6 +204,19 @@ CLOUDINARY_STORAGE = {
 PROJECT_FILE_PROXY_UPLOAD_MAX_BYTES = int(
     os.environ.get('PROJECT_FILE_PROXY_UPLOAD_MAX_BYTES', '100000000')
 )
+
+CONTACT_SUBMISSION_RATE_LIMIT = int(
+    os.environ.get('CONTACT_SUBMISSION_RATE_LIMIT', '5')
+)
+CONTACT_SUBMISSION_RATE_WINDOW_SECONDS = int(
+    os.environ.get('CONTACT_SUBMISSION_RATE_WINDOW_SECONDS', '900')
+)
+if CONTACT_SUBMISSION_RATE_LIMIT < 1:
+    raise ImproperlyConfigured("CONTACT_SUBMISSION_RATE_LIMIT must be positive.")
+if CONTACT_SUBMISSION_RATE_WINDOW_SECONDS < 1:
+    raise ImproperlyConfigured(
+        "CONTACT_SUBMISSION_RATE_WINDOW_SECONDS must be positive."
+    )
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

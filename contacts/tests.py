@@ -1,7 +1,8 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import Permission, User
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from clients.models import Client
@@ -12,6 +13,7 @@ from .models import ContactMessage
 
 class ContactMessageApiTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.api = APIClient()
         self.client_user = User.objects.create_user(
             "client@example.com",
@@ -90,6 +92,7 @@ class ContactMessageApiTests(TestCase):
                 "organisation": "Public Lab",
                 "service": "photography",
                 "message": "Please contact me",
+                "website": "",
                 "is_read": True,
             },
             format="json",
@@ -100,6 +103,115 @@ class ContactMessageApiTests(TestCase):
         saved = ContactMessage.objects.get(email="public@example.com")
         self.assertFalse(saved.is_read)
         send_email.assert_called_once()
+
+    @patch("contacts.views.resend.Emails.send")
+    def test_honeypot_submission_is_discarded_with_generic_success(
+        self,
+        send_email,
+    ):
+        response = self.api.post(
+            "/api/contacts/submit/",
+            {
+                "name": "Automated Contact",
+                "email": "bot@example.com",
+                "message": "This looks like a valid message.",
+                "website": "https://spam.example.com",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["message"], "Message received!")
+        self.assertFalse(
+            ContactMessage.objects.filter(email="bot@example.com").exists()
+        )
+        send_email.assert_not_called()
+
+    @override_settings(
+        CONTACT_SUBMISSION_RATE_LIMIT=2,
+        CONTACT_SUBMISSION_RATE_WINDOW_SECONDS=900,
+    )
+    @patch("contacts.views.resend.Emails.send")
+    def test_contact_submission_is_rate_limited_per_request_source(
+        self,
+        send_email,
+    ):
+        payload = {
+            "name": "Rate Limited Contact",
+            "email": "rate@example.com",
+            "message": "A legitimate message body.",
+            "website": "",
+        }
+
+        first = self.api.post(
+            "/api/contacts/submit/",
+            payload,
+            format="json",
+            REMOTE_ADDR="198.51.100.12",
+        )
+        second = self.api.post(
+            "/api/contacts/submit/",
+            payload,
+            format="json",
+            REMOTE_ADDR="198.51.100.12",
+        )
+        blocked = self.api.post(
+            "/api/contacts/submit/",
+            payload,
+            format="json",
+            REMOTE_ADDR="198.51.100.12",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(
+            blocked.data,
+            {"message": "Unable to process your request right now."},
+        )
+        self.assertEqual(
+            ContactMessage.objects.filter(email="rate@example.com").count(),
+            2,
+        )
+        self.assertEqual(send_email.call_count, 2)
+
+    @patch("contacts.views.resend.Emails.send")
+    def test_contact_submission_validates_public_fields(self, send_email):
+        invalid_payloads = (
+            {
+                "name": "A",
+                "email": "valid@example.com",
+                "message": "A valid message body.",
+            },
+            {
+                "name": "Valid Name",
+                "email": "not-an-email",
+                "message": "A valid message body.",
+            },
+            {
+                "name": "Valid Name",
+                "email": "valid@example.com",
+                "message": "Short",
+            },
+            {
+                "name": "Valid Name",
+                "email": "valid@example.com",
+                "message": "x" * 5001,
+            },
+        )
+
+        for index, payload in enumerate(invalid_payloads):
+            with self.subTest(payload_index=index):
+                response = self.api.post(
+                    "/api/contacts/submit/",
+                    {**payload, "website": ""},
+                    format="json",
+                    REMOTE_ADDR=f"198.51.100.{index + 20}",
+                )
+                self.assertEqual(response.status_code, 400)
+
+        self.assertEqual(ContactMessage.objects.count(), 1)
+        send_email.assert_not_called()
 
     @patch(
         "contacts.views.resend.Emails.send",

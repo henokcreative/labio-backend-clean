@@ -14,8 +14,14 @@ from .serializers import (
     ContactMessageSerializer,
     ContactMessageSubmissionSerializer,
 )
+from .throttles import ContactSubmissionRateThrottle
 
 logger = logging.getLogger(__name__)
+
+PUBLIC_SUBMISSION_RESPONSE = {
+    "message": "Message received!",
+    "email_notification": "sent",
+}
 
 
 @api_view(["GET"])
@@ -30,6 +36,17 @@ def get_messages(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def submit_contact(request):
+    honeypot = request.data.get("website", "")
+    if not isinstance(honeypot, str) or honeypot.strip():
+        return Response(PUBLIC_SUBMISSION_RESPONSE, status=status.HTTP_201_CREATED)
+
+    throttle = ContactSubmissionRateThrottle()
+    if not throttle.allow_request(request, submit_contact):
+        return Response(
+            {"message": "Unable to process your request right now."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     serializer = ContactMessageSubmissionSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     contact_message = serializer.save()
@@ -59,10 +76,8 @@ def submit_contact(request):
             contact_message.pk,
         )
 
-    return Response(
-        {
-            "message": "Message received!",
-            "email_notification": notification_status,
-        },
-        status=status.HTTP_201_CREATED,
-    )
+    response_data = {
+        **PUBLIC_SUBMISSION_RESPONSE,
+        "email_notification": notification_status,
+    }
+    return Response(response_data, status=status.HTTP_201_CREATED)
