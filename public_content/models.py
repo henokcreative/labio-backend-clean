@@ -943,17 +943,41 @@ class PricingPage(HeadlessPageMixin, PublicSEOMixin, Page):
 
 
 class PricingItem(Orderable):
+    class PricingMode(models.TextChoices):
+        STARTING_FROM = "starting_from", "Starting from"
+        FIXED = "fixed", "Fixed price"
+        CUSTOM = "custom", "Custom / contact us"
+
     page = ParentalKey(
         PricingPage,
         related_name="pricing_items",
         on_delete=models.CASCADE,
     )
     title = models.CharField(max_length=255)
+    pricing_mode = models.CharField(
+        max_length=20,
+        choices=PricingMode.choices,
+        default=PricingMode.STARTING_FROM,
+    )
+    currency = models.CharField(
+        max_length=10,
+        blank=True,
+        default="€",
+        help_text='Currency symbol or code, such as "€" or "EUR".',
+    )
     price_label = models.CharField(
         max_length=100,
-        help_text='Editorial text such as "From €400".',
+        help_text=(
+            'Enter the amount, such as "1,500", or custom wording such as '
+            '"Let’s talk". Existing formatted labels remain supported.'
+        ),
     )
     description = models.TextField(max_length=1000)
+    ideal_for = models.TextField(
+        max_length=1500,
+        blank=True,
+        help_text="Who this offer is designed for.",
+    )
     features = StreamField(
         [
             (
@@ -967,24 +991,66 @@ class PricingItem(Orderable):
         blank=True,
         use_json_field=True,
     )
+    context = models.TextField(
+        max_length=2000,
+        blank=True,
+        help_text="Optional scope, exclusions, or other pricing context.",
+    )
     cta_label = models.CharField(max_length=100)
     cta_url = models.URLField(
         max_length=500,
         help_text="Use the full public destination URL.",
     )
+    featured = models.BooleanField(
+        default=False,
+        help_text="Give this offer subtle emphasis on the public pricing page.",
+    )
     active = models.BooleanField(
         default=True,
         help_text="Inactive items stay in the CMS but are hidden publicly.",
     )
+    related_services = StreamField(
+        [
+            (
+                "service",
+                wagtail_blocks.PageChooserBlock(
+                    target_model="public_content.ServicePage",
+                    label="Service",
+                ),
+            )
+        ],
+        blank=True,
+        use_json_field=True,
+    )
+    related_case_studies = StreamField(
+        [
+            (
+                "case_study",
+                wagtail_blocks.PageChooserBlock(
+                    target_model="public_content.CaseStudyPage",
+                    label="Case study",
+                ),
+            )
+        ],
+        blank=True,
+        use_json_field=True,
+    )
 
     panels = [
         FieldPanel("title"),
+        FieldPanel("pricing_mode"),
+        FieldPanel("currency"),
         FieldPanel("price_label"),
         FieldPanel("description"),
+        FieldPanel("ideal_for"),
         FieldPanel("features"),
+        FieldPanel("context"),
         FieldPanel("cta_label"),
         FieldPanel("cta_url"),
+        FieldPanel("featured"),
         FieldPanel("active"),
+        FieldPanel("related_services"),
+        FieldPanel("related_case_studies"),
     ]
 
     def __str__(self):
