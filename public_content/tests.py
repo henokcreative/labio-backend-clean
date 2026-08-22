@@ -174,15 +174,22 @@ class PublicContentSecurityTests(TestCase):
             title="Photography",
             price_label="From €400",
             description="Purposeful photography for research.",
+            ideal_for="Research teams building a reusable image library.",
             features=[("feature", "Planning"), ("feature", "Edited delivery")],
+            context="Travel and specialist production costs are scoped separately.",
             cta_label="Request a quote",
             cta_url="https://example.com/contact",
+            featured=True,
             active=True,
+            related_services=[("service", cls.service)],
+            related_case_studies=[("case_study", cls.case_study)],
             sort_order=0,
         )
         PricingItem.objects.create(
             page=cls.pricing,
             title="Hidden service",
+            pricing_mode=PricingItem.PricingMode.CUSTOM,
+            currency="",
             price_label="Contact us",
             description="Not currently offered.",
             cta_label="Contact",
@@ -193,7 +200,9 @@ class PublicContentSecurityTests(TestCase):
         cls.pricing_second = PricingItem.objects.create(
             page=cls.pricing,
             title="Video production",
-            price_label="From €800",
+            pricing_mode=PricingItem.PricingMode.FIXED,
+            currency="€",
+            price_label="800",
             description="Editorial video production.",
             cta_label="Request a quote",
             cta_url="https://example.com/contact",
@@ -844,16 +853,116 @@ class PublicContentSecurityTests(TestCase):
             {
                 "id",
                 "title",
+                "pricing_mode",
+                "currency",
                 "price_label",
                 "description",
+                "ideal_for",
                 "features",
+                "context",
                 "cta_label",
                 "cta_url",
+                "featured",
+                "related_services",
+                "related_case_studies",
             },
+        )
+        self.assertEqual(
+            pricing_items[0]["pricing_mode"],
+            PricingItem.PricingMode.STARTING_FROM,
+        )
+        self.assertEqual(pricing_items[0]["currency"], "€")
+        self.assertEqual(
+            pricing_items[0]["ideal_for"],
+            "Research teams building a reusable image library.",
         )
         self.assertEqual(
             pricing_items[0]["features"],
             ["Planning", "Edited delivery"],
+        )
+        self.assertEqual(
+            pricing_items[0]["context"],
+            "Travel and specialist production costs are scoped separately.",
+        )
+        self.assertTrue(pricing_items[0]["featured"])
+        self.assertEqual(
+            [item["id"] for item in pricing_items[0]["related_services"]],
+            [self.service.pk],
+        )
+        self.assertEqual(
+            [item["id"] for item in pricing_items[0]["related_case_studies"]],
+            [self.case_study.pk],
+        )
+        self.assertEqual(
+            pricing_items[1]["pricing_mode"],
+            PricingItem.PricingMode.FIXED,
+        )
+
+    def test_pricing_optional_fields_and_custom_mode_remain_valid(self):
+        hidden = PricingItem.objects.get(title="Hidden service")
+        hidden.active = True
+        hidden.sort_order = 3
+        hidden.full_clean()
+        hidden.save()
+
+        response = self.client.get(f"/api/cms/v2/pages/{self.pricing.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["pricing_items"][-1]
+        self.assertEqual(item["pricing_mode"], PricingItem.PricingMode.CUSTOM)
+        self.assertEqual(item["currency"], "")
+        self.assertEqual(item["price_label"], "Contact us")
+        self.assertEqual(item["ideal_for"], "")
+        self.assertEqual(item["features"], [])
+        self.assertEqual(item["context"], "")
+        self.assertFalse(item["featured"])
+        self.assertEqual(item["related_services"], [])
+        self.assertEqual(item["related_case_studies"], [])
+
+    def test_pricing_relations_exclude_draft_pages(self):
+        draft_service = ServicePage(
+            title="Draft service",
+            slug="draft-service",
+            live=False,
+            summary="Not public.",
+            hero_image=self.image,
+            hero_image_alt="Draft service",
+            cta_label="Contact",
+            cta_url="https://example.com/contact",
+        )
+        self.service_index.add_child(instance=draft_service)
+        draft_service.save_revision()
+        draft_case_study = CaseStudyPage(
+            title="Draft case study",
+            slug="draft-case-study",
+            live=False,
+            category="Film",
+            hero_image=self.image,
+            hero_image_alt="Draft case study",
+        )
+        self.portfolio_index.add_child(instance=draft_case_study)
+        draft_case_study.save_revision()
+        self.pricing_first.related_services = [
+            ("service", self.service),
+            ("service", draft_service),
+        ]
+        self.pricing_first.related_case_studies = [
+            ("case_study", self.case_study),
+            ("case_study", draft_case_study),
+        ]
+        self.pricing_first.save()
+
+        response = self.client.get(f"/api/cms/v2/pages/{self.pricing.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["pricing_items"][0]
+        self.assertEqual(
+            [related["id"] for related in item["related_services"]],
+            [self.service.pk],
+        )
+        self.assertEqual(
+            [related["id"] for related in item["related_case_studies"]],
+            [self.case_study.pk],
         )
 
     def test_unpublished_pricing_page_is_not_exposed(self):

@@ -219,19 +219,44 @@ class ActivePricingItemsField(Field):
 
     def to_representation(self, value):
         items = value.filter(active=True).order_by("sort_order", "pk")
+
+        def related_pages(stream_value, block_type):
+            pages = [
+                block.value
+                for block in stream_value
+                if block.block_type == block_type and block.value is not None
+            ]
+            return [
+                public_page_summary(page)
+                for page in only_public_pages(pages)
+            ]
+
         return [
             {
                 "id": item.pk,
                 "title": item.title,
+                "pricing_mode": item.pricing_mode,
+                "currency": item.currency,
                 "price_label": item.price_label,
                 "description": item.description,
+                "ideal_for": item.ideal_for,
                 "features": [
                     str(block.value)
                     for block in item.features
                     if block.block_type == "feature"
                 ],
+                "context": item.context,
                 "cta_label": item.cta_label,
                 "cta_url": item.cta_url,
+                "featured": item.featured,
+                "related_services": related_pages(
+                    item.related_services,
+                    "service",
+                ),
+                "related_case_studies": related_pages(
+                    item.related_case_studies,
+                    "case_study",
+                ),
             }
             for item in items
         ]
