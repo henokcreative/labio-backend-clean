@@ -121,6 +121,46 @@ class OrderedCollaboratorsField(Field):
         return collaborators
 
 
+class OrderedTestimonialsField(Field):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("read_only", True)
+        super().__init__(**kwargs)
+
+    @staticmethod
+    def public_relation(page):
+        if page is None or not only_public_pages([page]):
+            return None
+        return public_page_summary(page)
+
+    def to_representation(self, value):
+        relations = value.select_related(
+            "testimonial",
+            "testimonial__related_service",
+            "testimonial__related_case_study",
+        ).order_by("sort_order", "pk")
+        testimonials = []
+        for relation in relations:
+            testimonial = relation.testimonial
+            if not testimonial.live or not testimonial.active:
+                continue
+            testimonials.append(
+                {
+                    "id": testimonial.pk,
+                    "quote": testimonial.quote,
+                    "person": testimonial.person,
+                    "role": testimonial.role,
+                    "organization": testimonial.organization,
+                    "related_service": self.public_relation(
+                        testimonial.related_service
+                    ),
+                    "related_case_study": self.public_relation(
+                        testimonial.related_case_study
+                    ),
+                }
+            )
+        return testimonials
+
+
 class ActivePricingItemsField(Field):
     def __init__(self, **kwargs):
         kwargs.setdefault("read_only", True)

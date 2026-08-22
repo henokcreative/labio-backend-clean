@@ -212,6 +212,19 @@ class ApprovedPublicContentImportTests(TestCase):
                 "INITIALISE",
             ],
         )
+        self.assertEqual(
+            list(
+                self.home.homepage_testimonials.values_list(
+                    "testimonial__person",
+                    flat=True,
+                )
+            ),
+            [
+                "[MOCK] Client name 01",
+                "[MOCK] Client name 02",
+                "[MOCK] Client name 03",
+            ],
+        )
         site_settings = SiteSettings.objects.get(site=self.site)
         self.assertEqual(site_settings.address, "Turku, Finland")
         self.assertEqual(site_settings.default_cta_label, "Start a conversation")

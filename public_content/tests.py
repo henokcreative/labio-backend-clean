@@ -17,6 +17,7 @@ from .models import (
     HomePageCollaborator,
     HomePageFeaturedCaseStudy,
     HomePageFeaturedService,
+    HomePageTestimonial,
     PortfolioIndexPage,
     PricingItem,
     PricingPage,
@@ -267,7 +268,7 @@ class PublicContentSecurityTests(TestCase):
             )
         cls.home.save_revision().publish()
 
-        Testimonial.objects.create(
+        cls.published_testimonial = Testimonial.objects.create(
             quote="A published testimonial.",
             person="Published Person",
             role="Producer",
@@ -275,18 +276,41 @@ class PublicContentSecurityTests(TestCase):
             active=True,
             live=True,
         )
-        Testimonial.objects.create(
+        cls.inactive_testimonial = Testimonial.objects.create(
             quote="An inactive testimonial.",
             person="Inactive Person",
             active=False,
             live=True,
         )
-        Testimonial.objects.create(
+        cls.draft_testimonial = Testimonial.objects.create(
             quote="A draft testimonial.",
             person="Draft Person",
             active=True,
             live=False,
         )
+        cls.second_published_testimonial = Testimonial.objects.create(
+            quote="A second published testimonial.",
+            person="Second Published Person",
+            role="Researcher",
+            organization="Second Published Organization",
+            related_service=cls.service,
+            active=True,
+            live=True,
+        )
+        for sort_order, testimonial in enumerate(
+            (
+                cls.draft_testimonial,
+                cls.published_testimonial,
+                cls.inactive_testimonial,
+                cls.second_published_testimonial,
+            )
+        ):
+            HomePageTestimonial.objects.create(
+                page=cls.home,
+                testimonial=testimonial,
+                sort_order=sort_order,
+            )
+        cls.home.save_revision().publish()
 
         SiteSettings.objects.create(
             site=cls.site,
@@ -430,7 +454,10 @@ class PublicContentSecurityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         people = {item["person"] for item in response.json()}
-        self.assertEqual(people, {"Published Person"})
+        self.assertEqual(
+            people,
+            {"Published Person", "Second Published Person"},
+        )
 
     def test_settings_endpoint_exposes_only_public_fields(self):
         response = self.client.get("/api/cms/v2/settings/")
@@ -514,6 +541,28 @@ class PublicContentSecurityTests(TestCase):
             [item["id"] for item in home_data["selected_work"]],
             [self.case_study.pk],
         )
+        self.assertTrue(home_data["selected_work_enabled"])
+        self.assertEqual(home_data["selected_work_eyebrow"], "Selected work")
+        self.assertEqual(
+            home_data["selected_work_heading"],
+            "Turning research into meaningful stories",
+        )
+        self.assertEqual(home_data["selected_work_cta_label"], "View all work")
+        self.assertEqual(
+            home_data["selected_work_cta_url"],
+            "https://labiomedia.com/work",
+        )
+        self.assertTrue(home_data["services_enabled"])
+        self.assertEqual(home_data["services_eyebrow"], "What we do")
+        self.assertEqual(
+            home_data["services_heading"],
+            "Communication solutions for research and innovation.",
+        )
+        self.assertEqual(home_data["services_cta_label"], "See all services")
+        self.assertEqual(
+            home_data["services_cta_url"],
+            "https://labiomedia.com/services",
+        )
         self.assertTrue(home_data["collaborators_enabled"])
         self.assertEqual(
             home_data["collaborators_heading"],
@@ -537,6 +586,36 @@ class PublicContentSecurityTests(TestCase):
                 "visual_variant",
             },
         )
+        self.assertTrue(home_data["testimonials_enabled"])
+        self.assertEqual(home_data["testimonials_heading"], "Client perspectives")
+        self.assertEqual(
+            [item["id"] for item in home_data["testimonials"]],
+            [
+                self.published_testimonial.pk,
+                self.second_published_testimonial.pk,
+            ],
+        )
+        self.assertEqual(
+            set(home_data["testimonials"][0]),
+            {
+                "id",
+                "quote",
+                "person",
+                "role",
+                "organization",
+                "related_service",
+                "related_case_study",
+            },
+        )
+        self.assertTrue(home_data["about_enabled"])
+        self.assertEqual(home_data["about_eyebrow"], "About LaBio Media")
+        self.assertEqual(home_data["about_cta_label"], "More about LaBio Media")
+        self.assertEqual(
+            home_data["about_cta_url"],
+            "https://labiomedia.com/about",
+        )
+        self.assertTrue(home_data["contact_enabled"])
+        self.assertEqual(home_data["contact_eyebrow"], "Contact")
         self.assertEqual(
             [
                 item["id"]
@@ -561,6 +640,31 @@ class PublicContentSecurityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["collaborators_enabled"])
+
+    def test_homepage_section_visibility_flags_are_public(self):
+        for field_name in (
+            "selected_work_enabled",
+            "services_enabled",
+            "testimonials_enabled",
+            "about_enabled",
+            "contact_enabled",
+        ):
+            setattr(self.home, field_name, False)
+        self.home.save_revision().publish()
+
+        response = self.client.get(
+            f"/api/cms/v2/pages/{self.home.pk}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        for field_name in (
+            "selected_work_enabled",
+            "services_enabled",
+            "testimonials_enabled",
+            "about_enabled",
+            "contact_enabled",
+        ):
+            self.assertFalse(response.json()[field_name])
 
     def test_typed_page_listing_supports_frontend_fields_contract(self):
         response = self.client.get(

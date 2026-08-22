@@ -13,6 +13,7 @@ from .api_fields import (
     ControlledImageRenditionField,
     OrderedCollaboratorsField,
     OrderedRelatedPagesField,
+    OrderedTestimonialsField,
     PublicPageListField,
 )
 from .blocks import (
@@ -78,6 +79,52 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
     primary_cta_url = models.URLField(max_length=500)
     secondary_cta_label = models.CharField(max_length=100)
     secondary_cta_url = models.URLField(max_length=500)
+    selected_work_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the selected work section on the public homepage.",
+    )
+    selected_work_eyebrow = models.CharField(
+        max_length=150,
+        blank=True,
+        default="Selected work",
+    )
+    selected_work_heading = models.CharField(
+        max_length=255,
+        default="Turning research into meaningful stories",
+    )
+    selected_work_cta_label = models.CharField(
+        max_length=100,
+        blank=True,
+        default="View all work",
+    )
+    selected_work_cta_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="https://labiomedia.com/work",
+    )
+    services_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the services section on the public homepage.",
+    )
+    services_eyebrow = models.CharField(
+        max_length=150,
+        blank=True,
+        default="What we do",
+    )
+    services_heading = models.CharField(
+        max_length=255,
+        default="Communication solutions for research and innovation.",
+    )
+    services_cta_label = models.CharField(
+        max_length=100,
+        blank=True,
+        default="See all services",
+    )
+    services_cta_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="https://labiomedia.com/services",
+    )
     collaborators_enabled = models.BooleanField(
         default=True,
         help_text="Show the collaborators section on the public homepage.",
@@ -85,6 +132,23 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
     collaborators_heading = models.CharField(
         max_length=255,
         default="Trusted by research groups and organisations",
+    )
+    testimonials_enabled = models.BooleanField(
+        default=True,
+        help_text="Show selected testimonials on the public homepage.",
+    )
+    testimonials_heading = models.CharField(
+        max_length=255,
+        default="Client perspectives",
+    )
+    about_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the about section on the public homepage.",
+    )
+    about_eyebrow = models.CharField(
+        max_length=150,
+        blank=True,
+        default="About LaBio Media",
     )
     about_heading = models.CharField(max_length=255)
     about_copy = models.TextField(max_length=1500)
@@ -96,6 +160,25 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         related_name="+",
     )
     about_image_alt = models.CharField(max_length=255)
+    about_cta_label = models.CharField(
+        max_length=100,
+        blank=True,
+        default="More about LaBio Media",
+    )
+    about_cta_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="https://labiomedia.com/about",
+    )
+    contact_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the contact section on the public homepage.",
+    )
+    contact_eyebrow = models.CharField(
+        max_length=150,
+        blank=True,
+        default="Contact",
+    )
     contact_heading = models.CharField(max_length=255)
     contact_copy = models.TextField(max_length=1000)
     contact_cta_label = models.CharField(max_length=100)
@@ -111,7 +194,17 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("primary_cta_url"),
         FieldPanel("secondary_cta_label"),
         FieldPanel("secondary_cta_url"),
+        FieldPanel("selected_work_enabled"),
+        FieldPanel("selected_work_eyebrow"),
+        FieldPanel("selected_work_heading"),
+        FieldPanel("selected_work_cta_label"),
+        FieldPanel("selected_work_cta_url"),
         InlinePanel("selected_case_studies", label="Selected case study"),
+        FieldPanel("services_enabled"),
+        FieldPanel("services_eyebrow"),
+        FieldPanel("services_heading"),
+        FieldPanel("services_cta_label"),
+        FieldPanel("services_cta_url"),
         InlinePanel("featured_services", label="Featured service"),
         FieldPanel("collaborators_enabled"),
         FieldPanel("collaborators_heading"),
@@ -120,10 +213,23 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
             label="Collaborator",
             help_text="Choose and drag collaborators into public display order.",
         ),
+        FieldPanel("testimonials_enabled"),
+        FieldPanel("testimonials_heading"),
+        InlinePanel(
+            "homepage_testimonials",
+            label="Testimonial",
+            help_text="Choose and drag testimonials into public display order.",
+        ),
+        FieldPanel("about_enabled"),
+        FieldPanel("about_eyebrow"),
         FieldPanel("about_heading"),
         FieldPanel("about_copy"),
         FieldPanel("about_image"),
         FieldPanel("about_image_alt"),
+        FieldPanel("about_cta_label"),
+        FieldPanel("about_cta_url"),
+        FieldPanel("contact_enabled"),
+        FieldPanel("contact_eyebrow"),
         FieldPanel("contact_heading"),
         FieldPanel("contact_copy"),
         FieldPanel("contact_cta_label"),
@@ -147,6 +253,11 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("primary_cta_url"),
         APIField("secondary_cta_label"),
         APIField("secondary_cta_url"),
+        APIField("selected_work_enabled"),
+        APIField("selected_work_eyebrow"),
+        APIField("selected_work_heading"),
+        APIField("selected_work_cta_label"),
+        APIField("selected_work_cta_url"),
         APIField(
             "selected_work",
             serializer=OrderedRelatedPagesField(
@@ -154,6 +265,11 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
                 source="selected_case_studies",
             ),
         ),
+        APIField("services_enabled"),
+        APIField("services_eyebrow"),
+        APIField("services_heading"),
+        APIField("services_cta_label"),
+        APIField("services_cta_url"),
         APIField(
             "featured_services",
             serializer=OrderedRelatedPagesField(
@@ -168,6 +284,16 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
                 source="homepage_collaborators",
             ),
         ),
+        APIField("testimonials_enabled"),
+        APIField("testimonials_heading"),
+        APIField(
+            "testimonials",
+            serializer=OrderedTestimonialsField(
+                source="homepage_testimonials",
+            ),
+        ),
+        APIField("about_enabled"),
+        APIField("about_eyebrow"),
         APIField("about_heading"),
         APIField("about_copy"),
         APIField(
@@ -178,6 +304,10 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
                 "fill-1200x900",
             ),
         ),
+        APIField("about_cta_label"),
+        APIField("about_cta_url"),
+        APIField("contact_enabled"),
+        APIField("contact_eyebrow"),
         APIField("contact_heading"),
         APIField("contact_copy"),
         APIField("contact_cta_label"),
@@ -535,6 +665,29 @@ class HomePageCollaborator(Orderable):
             models.UniqueConstraint(
                 fields=["page", "collaborator"],
                 name="unique_homepage_collaborator",
+            )
+        ]
+
+
+class HomePageTestimonial(Orderable):
+    page = ParentalKey(
+        HomePage,
+        related_name="homepage_testimonials",
+        on_delete=models.CASCADE,
+    )
+    testimonial = models.ForeignKey(
+        "public_content.Testimonial",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+
+    panels = [FieldPanel("testimonial")]
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["page", "testimonial"],
+                name="unique_homepage_testimonial",
             )
         ]
 
