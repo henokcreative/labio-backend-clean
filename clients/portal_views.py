@@ -148,10 +148,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         approval.save(update_fields=["status", "comment", "updated_at"])
         if status_value == Approval.Status.CHANGES_REQUESTED:
             project.status = "review"
-        elif not project.approvals.exclude(status=Approval.Status.APPROVED).exists():
-            project.status = "completed"
-        else:
+        elif project.approvals.filter(status=Approval.Status.PENDING).exists():
             project.status = "approval"
+        else:
+            project.status = "completed"
         project.save(update_fields=["status", "updated_at"])
         return Response(ApprovalSerializer(approval).data)
 
@@ -179,7 +179,9 @@ class PortalMessageViewSet(viewsets.ViewSet):
                 unread.filter(sender_id=F("conversation__client_id")).update(is_read=True)
             else:
                 unread.exclude(sender=request.user).update(is_read=True)
-        return Response(MessageSerializer(messages[:50], many=True).data)
+        latest_messages = list(messages[:50])
+        latest_messages.reverse()
+        return Response(MessageSerializer(latest_messages, many=True).data)
 
     def create(self, request):
         project_id = request.data.get("project")
@@ -197,14 +199,19 @@ class PortalMessageViewSet(viewsets.ViewSet):
         client_user = project.client.user
         if not client_user:
             return Response({"detail": "This project has no portal client account."}, status=status.HTTP_400_BAD_REQUEST)
-        conversation, _ = Conversation.objects.get_or_create(
+        conversation = Conversation.objects.filter(
             project=project,
             client=client_user,
-            defaults={
-                "subject": project.title,
-                "assigned_staff": request.user if has_portal_staff_access(request.user) else None,
-            },
-        )
+        ).order_by("-updated_at").first()
+        if conversation is None:
+            conversation = Conversation.objects.create(
+                project=project,
+                client=client_user,
+                subject=project.title,
+                assigned_staff=(
+                    request.user if has_portal_staff_access(request.user) else None
+                ),
+            )
         if has_portal_staff_access(request.user):
             incoming = conversation.messages.filter(
                 sender=client_user,
@@ -241,7 +248,36 @@ class DashboardViewSet(viewsets.ViewSet):
             "client__primary_contact",
             "primary_staff",
         ).prefetch_related("team_members").exclude(status__in=["completed", "archived"])
-        files = ProjectFile.objects.filter(project__client=client, category=ProjectFile.Category.FINAL_DELIVERY).select_related("project")[:5]
-        approvals = Approval.objects.filter(client=client, status=Approval.Status.PENDING).select_related("project", "file")
-        messages = Message.objects.filter(conversation__client=request.user).exclude(sender=request.user).select_related("conversation", "sender").order_by("-created_at")[:5]
-        return Response({"client": {"name": client.name, "company": client.company}, "active_projects": ProjectSerializer(projects, many=True).data, "pending_approvals": ApprovalSerializer(approvals, many=True).data, "latest_messages": MessageSerializer(messages, many=True).data, "latest_files": ProjectFileSerializer(files, many=True, context={"request": request}).data})
+        files = ProjectFile.objects.filter(
+            project__client=client,
+            category=ProjectFile.Category.FINAL_DELIVERY,
+        ).select_related("project")
+        approvals = Approval.objects.filter(
+            client=client,
+            project__client=client,
+            file__project=F("project"),
+            status=Approval.Status.PENDING,
+        ).select_related("project", "file")
+        all_messages = Message.objects.filter(conversation__client=request.user)
+        messages = all_messages.exclude(sender=request.user).select_related(
+            "conversation",
+            "conversation__project",
+            "sender",
+        ).order_by("-created_at")
+        return Response(
+            {
+                "client": {"name": client.name, "company": client.company},
+                "active_project_count": projects.count(),
+                "message_count": all_messages.count(),
+                "pending_approval_count": approvals.count(),
+                "delivered_file_count": files.count(),
+                "active_projects": ProjectSerializer(projects, many=True).data,
+                "pending_approvals": ApprovalSerializer(approvals, many=True).data,
+                "latest_messages": MessageSerializer(messages[:5], many=True).data,
+                "latest_files": ProjectFileSerializer(
+                    files[:5],
+                    many=True,
+                    context={"request": request},
+                ).data,
+            }
+        )

@@ -15,7 +15,7 @@ from django.utils.http import urlsafe_base64_encode
 from unittest.mock import Mock, patch
 
 from cloudinary import CloudinaryResource
-from messaging.models import Conversation
+from messaging.models import Conversation, Message
 from .admin import ProjectAdmin
 from .models import Approval, Client, Project, ProjectFile
 from .portal_views import ProjectViewSet
@@ -581,6 +581,160 @@ class PortalPermissionTests(TestCase):
         self.assertEqual(Conversation.objects.get(project=self.project_a).client, self.user_a)
         self.assertEqual(self.api.get(f"/api/messages/?project={self.project_a.id}").status_code, 200)
         self.assertEqual(self.api.get("/api/messages/").status_code, 200)
+
+    def test_project_message_thread_is_chronological_and_reuses_latest_conversation(self):
+        older_conversation = Conversation.objects.create(
+            client=self.user_a,
+            project=self.project_a,
+            subject="Older project thread",
+        )
+        Message.objects.create(
+            conversation=older_conversation,
+            sender=self.staff,
+            body="First staff update",
+        )
+        latest_conversation = Conversation.objects.create(
+            client=self.user_a,
+            project=self.project_a,
+            subject="Current project thread",
+        )
+        Message.objects.create(
+            conversation=latest_conversation,
+            sender=self.staff,
+            body="Second staff update",
+        )
+        self.api.force_authenticate(self.user_a)
+
+        response = self.api.post(
+            "/api/messages/",
+            {"project": self.project_a.id, "content": "Client reply"},
+            format="json",
+        )
+        thread = self.api.get(f"/api/messages/?project={self.project_a.id}")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["conversation_id"], latest_conversation.id)
+        self.assertEqual(Conversation.objects.filter(project=self.project_a).count(), 2)
+        self.assertEqual(
+            [message["content"] for message in thread.data],
+            ["First staff update", "Second staff update", "Client reply"],
+        )
+
+    def test_revision_history_does_not_block_current_approval_completion(self):
+        self.api.force_authenticate(self.user_a)
+        response = self.api.post(
+            f"/api/projects/{self.project_a.id}/approve/",
+            {
+                "file_id": self.approval_file_a.id,
+                "status": "changes_requested",
+                "comment": "Please revise this version.",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        revision = ProjectFile.objects.create(
+            project=self.project_a,
+            uploaded_by=self.staff,
+            file=CloudinaryResource(
+                "client-a-approval-v2",
+                resource_type="raw",
+                type="private",
+                format="pdf",
+            ),
+            filename="client-a-approval-v2.pdf",
+            category=ProjectFile.Category.APPROVAL,
+            supersedes=self.approval_file_a,
+        )
+        response = self.api.post(
+            f"/api/projects/{self.project_a.id}/approve/",
+            {"file_id": revision.id, "status": "approved"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.approval_a.refresh_from_db()
+        self.project_a.refresh_from_db()
+        self.assertEqual(
+            self.approval_a.status,
+            Approval.Status.CHANGES_REQUESTED,
+        )
+        self.assertEqual(
+            Approval.objects.get(file=revision).status,
+            Approval.Status.APPROVED,
+        )
+        self.assertEqual(self.project_a.status, "completed")
+
+        dashboard = self.api.get("/api/auth/dashboard/")
+        files = self.api.get(f"/api/projects/{self.project_a.id}/files/")
+        revision_data = next(item for item in files.data if item["id"] == revision.id)
+        self.assertEqual(dashboard.data["pending_approval_count"], 0)
+        self.assertEqual(dashboard.data["pending_approvals"], [])
+        self.assertFalse(revision_data["pending_approval"])
+
+    def test_dashboard_counts_full_sets_and_previews_only_the_latest_five(self):
+        conversation = Conversation.objects.create(
+            client=self.user_a,
+            project=self.project_a,
+            subject="Project messages",
+        )
+        for index in range(7):
+            Message.objects.create(
+                conversation=conversation,
+                sender=self.staff if index < 6 else self.user_a,
+                body=f"Message {index}",
+            )
+        for index in range(5):
+            ProjectFile.objects.create(
+                project=self.project_a,
+                uploaded_by=self.staff,
+                file=CloudinaryResource(
+                    f"client-a-final-{index}",
+                    resource_type="raw",
+                    type="private",
+                    format="pdf",
+                ),
+                filename=f"client-a-final-{index}.pdf",
+                category=ProjectFile.Category.FINAL_DELIVERY,
+            )
+
+        self.api.force_authenticate(self.user_a)
+        response = self.api.get("/api/auth/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["active_project_count"], 1)
+        self.assertEqual(response.data["message_count"], 7)
+        self.assertEqual(response.data["pending_approval_count"], 1)
+        self.assertEqual(response.data["delivered_file_count"], 6)
+        self.assertEqual(len(response.data["latest_messages"]), 5)
+        self.assertEqual(len(response.data["latest_files"]), 5)
+        self.assertEqual(response.data["active_projects"][0]["status"], "approval")
+        self.assertEqual(response.data["active_projects"][0]["progress"], 83)
+        self.assertEqual(
+            response.data["latest_messages"][0]["conversation_id"],
+            conversation.id,
+        )
+        self.assertEqual(
+            response.data["latest_messages"][0]["project_id"],
+            self.project_a.id,
+        )
+
+    def test_dashboard_excludes_inconsistent_cross_client_approval(self):
+        leaked = Approval.objects.create(
+            project=self.project_b,
+            file=self.approval_file_b,
+            client=self.client_a,
+        )
+        self.api.force_authenticate(self.user_a)
+
+        response = self.api.get("/api/auth/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["pending_approval_count"], 1)
+        self.assertNotIn(
+            leaked.id,
+            [approval["id"] for approval in response.data["pending_approvals"]],
+        )
 
     def test_unauthenticated_portal_requests_are_rejected(self):
         self.assertEqual(self.api.get("/api/messages/").status_code, 401)

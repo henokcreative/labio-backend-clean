@@ -151,6 +151,49 @@ class MessagingPortalStaffPermissionTests(TestCase):
         self.assertEqual(message["content"], "Hello from the client")
         self.assertEqual(message["sender_name"], "Client")
         self.assertEqual(message["sender_role"], "client")
+        self.assertEqual(message["conversation_id"], self.conversation.id)
+        self.assertIsNone(message["project_id"])
+
+    def test_admin_message_and_client_reply_share_one_conversation(self):
+        request = RequestFactory().post(
+            f"/admin/messaging/conversation/{self.conversation.pk}/change/"
+        )
+        request.user = self.portal_staff
+        admin_message = Message(
+            conversation=self.conversation,
+            body="A staff update from Django Admin",
+        )
+        formset = Mock()
+        formset.save.return_value = [admin_message]
+        formset.deleted_objects = []
+        ConversationAdmin(Conversation, admin.site).save_formset(
+            request,
+            form=None,
+            formset=formset,
+            change=True,
+        )
+
+        self.api.force_authenticate(self.client_user)
+        conversations = self.api.get("/api/messaging/conversations/")
+        self.assertEqual(conversations.status_code, 200)
+        self.assertEqual(
+            conversations.data[0]["messages"][0]["sender_role"],
+            "staff",
+        )
+        reply = self.api.post(
+            f"/api/messaging/conversations/{self.conversation.id}/send/",
+            {"body": "The client reply"},
+            format="json",
+        )
+        self.assertEqual(reply.status_code, 201)
+        self.assertEqual(reply.data["sender_role"], "client")
+        self.assertEqual(reply.data["conversation_id"], self.conversation.id)
+
+        self.api.force_authenticate(self.portal_staff)
+        staff_view = self.api.get("/api/messaging/conversations/")
+        messages = staff_view.data[0]["messages"]
+        self.assertEqual([message["sender_role"] for message in messages], ["staff", "client"])
+        self.assertEqual(messages[1]["content"], "The client reply")
 
     def test_staff_filters_and_unread_count_use_client_messages(self):
         assigned = Conversation.objects.create(

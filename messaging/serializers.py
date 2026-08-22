@@ -10,6 +10,12 @@ class SimpleUserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'first_name', 'last_name']
 
 class MessageSerializer(serializers.ModelSerializer):
+    conversation_id = serializers.IntegerField(read_only=True)
+    project_id = serializers.IntegerField(
+        source='conversation.project_id',
+        read_only=True,
+        allow_null=True,
+    )
     sender_username = serializers.CharField(source='sender.username', read_only=True)
     sender_name = serializers.SerializerMethodField()
     sender_role = serializers.SerializerMethodField()
@@ -19,6 +25,8 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = [
             'id',
+            'conversation_id',
+            'project_id',
             'body',
             'content',
             'sender_username',

@@ -433,6 +433,18 @@ class ProjectFileAccessContractTests(TestCase):
             self.api.get(f"/api/projects/{self.project.id}/files/").status_code,
             404,
         )
+        self.assertEqual(
+            self.api.get(
+                f"/api/projects/{self.project.id}/files/{self.supported.id}/preview/"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.api.get(
+                f"/api/projects/{self.project.id}/files/{self.final.id}/download/"
+            ).status_code,
+            404,
+        )
 
     @patch("clients.portal_views.private_download_url", return_value="https://signed.example/file")
     def test_new_metadata_and_legacy_raw_values_both_sign_exact_identifiers(self, signed_url):
