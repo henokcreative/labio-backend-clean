@@ -128,6 +128,17 @@ class PublicContentSecurityTests(TestCase):
             client_display_name="Editorial Client Name",
             category="Film",
             summary="Public case study summary.",
+            project_year="2025",
+            challenge="Explain a complex research programme clearly.",
+            approach="Build the story around the researchers and their work.",
+            deliverables=[
+                ("deliverable", "Editorial film"),
+                ("deliverable", "Social cutdowns"),
+            ],
+            outcome="A focused story ready for public release.",
+            project_url="https://project.example.com",
+            cta_label="Discuss a similar project",
+            cta_url="https://labiomedia.com/contact",
             hero_image=cls.image,
             hero_image_alt="A finished public production",
             embed_url="https://example.com/public-video",
@@ -662,6 +673,34 @@ class PublicContentSecurityTests(TestCase):
             [item["id"] for item in responses[self.case_study.pk]["services"]],
             [self.service.pk],
         )
+        case_study_data = responses[self.case_study.pk]
+        self.assertEqual(case_study_data["client_display_name"], "Editorial Client Name")
+        self.assertEqual(case_study_data["project_year"], "2025")
+        self.assertEqual(
+            case_study_data["challenge"],
+            "Explain a complex research programme clearly.",
+        )
+        self.assertEqual(
+            case_study_data["approach"],
+            "Build the story around the researchers and their work.",
+        )
+        self.assertEqual(
+            [item["value"] for item in case_study_data["deliverables"]],
+            ["Editorial film", "Social cutdowns"],
+        )
+        self.assertEqual(
+            case_study_data["outcome"],
+            "A focused story ready for public release.",
+        )
+        self.assertEqual(
+            case_study_data["project_url"],
+            "https://project.example.com",
+        )
+        self.assertEqual(case_study_data["cta_label"], "Discuss a similar project")
+        self.assertEqual(
+            case_study_data["cta_url"],
+            "https://labiomedia.com/contact",
+        )
 
         about_data = responses[self.about.pk]
         self.assertEqual(about_data["page_eyebrow"], "About LaBio Media")
@@ -684,6 +723,34 @@ class PublicContentSecurityTests(TestCase):
             {"url", "width", "height", "alt"},
         )
         self.assertEqual(about_data["hero_image"]["alt"], "The LaBio Media team")
+
+    def test_case_study_editorial_fields_are_optional(self):
+        minimal = CaseStudyPage(
+            title="Minimal public project",
+            slug="minimal-public-project",
+            client_display_name="",
+            category="Editorial",
+            summary="",
+            hero_image=self.image,
+            hero_image_alt="Minimal public project",
+        )
+        self.portfolio_index.add_child(instance=minimal)
+        minimal.save_revision().publish()
+
+        response = self.client.get(f"/api/cms/v2/pages/{minimal.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["client_display_name"], "")
+        self.assertEqual(data["summary"], "")
+        self.assertEqual(data["project_year"], "")
+        self.assertEqual(data["challenge"], "")
+        self.assertEqual(data["approach"], "")
+        self.assertEqual(data["deliverables"], [])
+        self.assertEqual(data["outcome"], "")
+        self.assertEqual(data["project_url"], "")
+        self.assertEqual(data["cta_label"], "")
+        self.assertEqual(data["cta_url"], "")
 
     def test_about_testimonial_selection_can_be_empty_or_disabled(self):
         AboutPageTestimonial.objects.filter(page=self.about).delete()

@@ -684,9 +684,33 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
     parent_page_types = ["public_content.PortfolioIndexPage"]
     subpage_types = []
 
-    client_display_name = models.CharField(max_length=255)
+    client_display_name = models.CharField(max_length=255, blank=True)
     category = models.CharField(max_length=150)
-    summary = models.TextField(max_length=1000)
+    summary = models.TextField(max_length=1000, blank=True)
+    project_year = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text='Editorial year or range, such as "2025" or "2024–2025".',
+    )
+    challenge = models.TextField(max_length=4000, blank=True)
+    approach = models.TextField(max_length=4000, blank=True)
+    outcome = models.TextField(max_length=4000, blank=True)
+    deliverables = StreamField(
+        [
+            (
+                "deliverable",
+                wagtail_blocks.CharBlock(
+                    max_length=255,
+                    label="Deliverable",
+                ),
+            )
+        ],
+        blank=True,
+        use_json_field=True,
+    )
+    project_url = models.URLField(max_length=500, blank=True)
+    cta_label = models.CharField(max_length=100, blank=True)
+    cta_url = models.URLField(max_length=500, blank=True)
     body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
     hero_image = models.ForeignKey(
         "wagtailimages.Image",
@@ -714,6 +738,14 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("client_display_name"),
         FieldPanel("category"),
         FieldPanel("summary"),
+        FieldPanel("project_year"),
+        FieldPanel("challenge"),
+        FieldPanel("approach"),
+        FieldPanel("deliverables"),
+        FieldPanel("outcome"),
+        FieldPanel("project_url"),
+        FieldPanel("cta_label"),
+        FieldPanel("cta_url"),
         FieldPanel("body"),
         FieldPanel("hero_image"),
         FieldPanel("hero_image_alt"),
@@ -724,10 +756,26 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("featured"),
     ]
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
+    search_fields = Page.search_fields + [
+        index.SearchField("client_display_name"),
+        index.SearchField("summary"),
+        index.SearchField("challenge"),
+        index.SearchField("approach"),
+        index.SearchField("outcome"),
+        index.SearchField("body"),
+    ]
     api_fields = PublicSEOMixin.seo_api_fields + [
         APIField("client_display_name"),
         APIField("category"),
         APIField("summary"),
+        APIField("project_year"),
+        APIField("challenge"),
+        APIField("approach"),
+        APIField("deliverables"),
+        APIField("outcome"),
+        APIField("project_url"),
+        APIField("cta_label"),
+        APIField("cta_url"),
         APIField("body"),
         APIField(
             "hero_image",
