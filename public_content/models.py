@@ -1,6 +1,7 @@
 from datetime import time
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 from modelcluster.fields import ParentalKey, ParentalManyToManyField
@@ -148,6 +149,7 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         max_length=255,
         default="Client perspectives",
     )
+
     about_enabled = models.BooleanField(
         default=True,
         help_text="Show the about section on the public homepage.",
@@ -190,6 +192,52 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
     contact_copy = models.TextField(max_length=1000)
     contact_cta_label = models.CharField(max_length=100)
     contact_cta_url = models.URLField(max_length=500)
+    updates_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the latest published updates on the public homepage.",
+    )
+    updates_eyebrow = models.CharField(
+        max_length=150,
+        blank=True,
+        default="From LaBio",
+    )
+    updates_heading = models.CharField(
+        max_length=255,
+        default="A few notes, ideas and milestones.",
+    )
+    updates_item_count = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(6)],
+        help_text="Number of latest published updates to show (1–6).",
+    )
+    updates_cta_label = models.CharField(
+        max_length=100,
+        blank=True,
+        default="View all updates",
+    )
+    updates_cta_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="https://labiomedia.com/updates",
+    )
+
+    @property
+    def latest_updates(self):
+        if not self.updates_enabled:
+            return []
+        updates_index = (
+            UpdatesIndexPage.objects.child_of(self).live().public().first()
+        )
+        if updates_index is None:
+            return []
+        return list(
+            Page.objects.child_of(updates_index)
+            .live()
+            .public()
+            .type(ArticlePage, EventPage)
+            .order_by("-first_published_at", "-pk")
+            .specific()[: self.updates_item_count]
+        )
 
     content_panels = Page.content_panels + [
         FieldPanel("hero_eyebrow"),
@@ -241,6 +289,12 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("contact_copy"),
         FieldPanel("contact_cta_label"),
         FieldPanel("contact_cta_url"),
+        FieldPanel("updates_enabled"),
+        FieldPanel("updates_eyebrow"),
+        FieldPanel("updates_heading"),
+        FieldPanel("updates_item_count"),
+        FieldPanel("updates_cta_label"),
+        FieldPanel("updates_cta_url"),
     ]
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
 
@@ -319,6 +373,16 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("contact_copy"),
         APIField("contact_cta_label"),
         APIField("contact_cta_url"),
+        APIField("updates_enabled"),
+        APIField("updates_eyebrow"),
+        APIField("updates_heading"),
+        APIField("updates_item_count"),
+        APIField("updates_cta_label"),
+        APIField("updates_cta_url"),
+        APIField(
+            "latest_updates",
+            serializer=PublicUpdateListField(),
+        ),
     ]
 
 
@@ -706,6 +770,35 @@ class AboutPage(HeadlessPageMixin, PublicSEOMixin, Page):
         blank=True,
         use_json_field=True,
     )
+    page_eyebrow = models.CharField(
+        max_length=150,
+        blank=True,
+        default="About LaBio Media",
+    )
+    values_label = models.CharField(
+        max_length=150,
+        blank=True,
+        default="Values",
+    )
+    process_label = models.CharField(
+        max_length=150,
+        blank=True,
+        default="How we work",
+    )
+    testimonials_enabled = models.BooleanField(
+        default=True,
+        help_text="Show selected testimonials on the public About page.",
+    )
+    testimonials_heading = models.CharField(
+        max_length=255,
+        default="Client perspectives",
+    )
+
+    @property
+    def public_testimonial_relations(self):
+        if not self.testimonials_enabled:
+            return self.about_testimonials.none()
+        return self.about_testimonials
 
     content_panels = Page.content_panels + [
         FieldPanel("hero_image"),
@@ -714,6 +807,16 @@ class AboutPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("body"),
         FieldPanel("values"),
         FieldPanel("process"),
+        FieldPanel("page_eyebrow"),
+        FieldPanel("values_label"),
+        FieldPanel("process_label"),
+        FieldPanel("testimonials_enabled"),
+        FieldPanel("testimonials_heading"),
+        InlinePanel(
+            "about_testimonials",
+            label="Testimonial",
+            help_text="Choose and drag testimonials into public display order.",
+        ),
     ]
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
     api_fields = PublicSEOMixin.seo_api_fields + [
@@ -729,6 +832,17 @@ class AboutPage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("body"),
         APIField("values"),
         APIField("process"),
+        APIField("page_eyebrow"),
+        APIField("values_label"),
+        APIField("process_label"),
+        APIField("testimonials_enabled"),
+        APIField("testimonials_heading"),
+        APIField(
+            "testimonials",
+            serializer=OrderedTestimonialsField(
+                source="public_testimonial_relations"
+            ),
+        ),
     ]
 
 
@@ -901,6 +1015,29 @@ class HomePageTestimonial(Orderable):
             models.UniqueConstraint(
                 fields=["page", "testimonial"],
                 name="unique_homepage_testimonial",
+            )
+        ]
+
+
+class AboutPageTestimonial(Orderable):
+    page = ParentalKey(
+        AboutPage,
+        related_name="about_testimonials",
+        on_delete=models.CASCADE,
+    )
+    testimonial = models.ForeignKey(
+        "public_content.Testimonial",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+
+    panels = [FieldPanel("testimonial")]
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["page", "testimonial"],
+                name="unique_aboutpage_testimonial",
             )
         ]
 
