@@ -148,6 +148,38 @@ class TestimonialListView(PublicAPIBaseView):
 
 
 class SiteSettingsView(PublicAPIBaseView):
+    @staticmethod
+    def public_navigation_links(settings):
+        links = []
+        for block in settings.navigation_links:
+            value = block.value
+            if not value.get("enabled", True):
+                continue
+
+            page = value.get("page")
+            url = value.get("url") or ""
+            page_data = None
+            if page is not None:
+                page = page.specific
+                if not only_public_pages([page]):
+                    continue
+                page_data = public_page_summary(page)
+                page_data["type"] = (
+                    f"{page._meta.app_label}.{page.__class__.__name__}"
+                )
+            elif not url:
+                continue
+
+            links.append(
+                {
+                    "label": value.get("label", "").strip(),
+                    "url": url,
+                    "page": page_data,
+                    "external": bool(value.get("external")) if url else False,
+                }
+            )
+        return [link for link in links if link["label"]]
+
     def get(self, request):
         site = Site.find_for_request(request)
         if site is None:
@@ -170,6 +202,7 @@ class SiteSettingsView(PublicAPIBaseView):
                     "default_cta_label": "",
                     "default_cta_url": "",
                     "social_links": [],
+                    "navigation_links": [],
                     "default_social_image": None,
                 }
             )
@@ -189,6 +222,7 @@ class SiteSettingsView(PublicAPIBaseView):
                 "default_cta_label": settings.default_cta_label,
                 "default_cta_url": settings.default_cta_url,
                 "social_links": social_links,
+                "navigation_links": self.public_navigation_links(settings),
                 "default_social_image": get_rendition_data(
                     settings.default_social_image,
                     "fill-1200x630",

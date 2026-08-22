@@ -281,6 +281,20 @@ INVITATION_FRONTEND_URL = url_setting(
     "http://localhost:3000/accept-invitation",
 )
 PASSWORD_RESET_TIMEOUT = int(os.environ.get('INVITATION_TIMEOUT_SECONDS', 60 * 60 * 72))
+PASSWORD_RESET_FRONTEND_URL = os.environ.get(
+    "PASSWORD_RESET_FRONTEND_URL",
+    "",
+).strip()
+if IS_PRODUCTION and PASSWORD_RESET_FRONTEND_URL and not PASSWORD_RESET_FRONTEND_URL.startswith("https://"):
+    raise ImproperlyConfigured(
+        "PASSWORD_RESET_FRONTEND_URL must use HTTPS in production."
+    )
+PASSWORD_RESET_RATE_LIMIT = int(os.environ.get("PASSWORD_RESET_RATE_LIMIT", "5"))
+PASSWORD_RESET_RATE_WINDOW_SECONDS = int(
+    os.environ.get("PASSWORD_RESET_RATE_WINDOW_SECONDS", "900")
+)
+if PASSWORD_RESET_RATE_LIMIT < 1 or PASSWORD_RESET_RATE_WINDOW_SECONDS < 1:
+    raise ImproperlyConfigured("Password reset rate-limit settings must be positive.")
 
 CORS_ALLOWED_ORIGINS = env_list(
     "CORS_ALLOWED_ORIGINS",

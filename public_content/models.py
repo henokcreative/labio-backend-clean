@@ -26,6 +26,7 @@ from .api_fields import (
 from .blocks import (
     CapabilityBlock,
     GalleryImageBlock,
+    NavigationLinkBlock,
     ProcessStepBlock,
     PublicBodyBlock,
     SocialLinkBlock,
@@ -1266,6 +1267,11 @@ class SiteSettings(BaseSiteSetting):
         blank=True,
         use_json_field=True,
     )
+    navigation_links = StreamField(
+        [("navigation_link", NavigationLinkBlock())],
+        blank=True,
+        use_json_field=True,
+    )
     default_social_image = models.ForeignKey(
         "wagtailimages.Image",
         null=True,
@@ -1285,5 +1291,6 @@ class SiteSettings(BaseSiteSetting):
         FieldPanel("default_cta_label"),
         FieldPanel("default_cta_url"),
         FieldPanel("social_links"),
+        FieldPanel("navigation_links"),
         FieldPanel("default_social_image"),
     ]

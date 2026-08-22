@@ -1,6 +1,9 @@
 from django.contrib import admin
 from django.contrib.auth.models import Permission, User
+from datetime import datetime, timedelta
+
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
@@ -17,7 +20,12 @@ from .admin import ProjectAdmin
 from .models import Approval, Client, Project, ProjectFile
 from .portal_views import ProjectViewSet
 from .permissions import PORTAL_STAFF_PERMISSION
-from .services import send_invitation_email
+from .services import (
+    password_reset_url,
+    send_invitation_email,
+    send_password_reset_email,
+)
+from .tokens import password_reset_token_generator
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -66,6 +74,148 @@ class EmailLoginTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
+
+
+class PasswordResetTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            username="reset@example.com",
+            email="reset@example.com",
+            password="OldSecurePassword!123",
+        )
+
+    @patch("clients.views.send_password_reset_email")
+    def test_request_is_generic_for_known_and_unknown_emails(self, send_email):
+        known = self.client.post(
+            reverse("password-reset-request"),
+            {"email": self.user.email},
+        )
+        unknown = self.client.post(
+            reverse("password-reset-request"),
+            {"email": "unknown@example.com"},
+        )
+
+        self.assertEqual(known.status_code, 200)
+        self.assertEqual(unknown.status_code, 200)
+        self.assertEqual(known.json(), unknown.json())
+        send_email.assert_called_once_with(self.user)
+
+    @override_settings(
+        PASSWORD_RESET_FRONTEND_URL="https://example.com/reset-password"
+    )
+    def test_reset_url_uses_frontend_route_without_exposing_credentials(self):
+        url = password_reset_url(self.user)
+        self.assertTrue(url.startswith("https://example.com/reset-password?"))
+        self.assertIn("uid=", url)
+        self.assertIn("token=", url)
+
+    @override_settings(
+        PASSWORD_RESET_FRONTEND_URL="",
+        INVITATION_FRONTEND_URL="https://www.example.com/accept-invitation",
+    )
+    def test_reset_url_defaults_to_invitation_frontend_origin(self):
+        url = password_reset_url(self.user)
+        self.assertTrue(url.startswith("https://www.example.com/reset-password?"))
+
+    @patch("clients.services.resend.Emails.send")
+    def test_reset_email_uses_existing_resend_sender(self, send_email):
+        url = send_password_reset_email(self.user)
+        send_email.assert_called_once()
+        payload = send_email.call_args.args[0]
+        self.assertEqual(payload["to"], self.user.email)
+        self.assertEqual(payload["from"], "dev-null@localhost")
+        self.assertIn(url, payload["text"])
+
+    def test_valid_reset_sets_password_and_invalidates_token(self):
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = password_reset_token_generator.make_token(self.user)
+        payload = {
+            "uid": uid,
+            "token": token,
+            "password": "NewSecurePassword!456",
+            "password_confirmation": "NewSecurePassword!456",
+        }
+
+        response = self.client.post(reverse("password-reset-confirm"), payload)
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("NewSecurePassword!456"))
+        self.assertEqual(
+            self.client.post(reverse("password-reset-confirm"), payload).status_code,
+            400,
+        )
+
+    def test_password_validation_errors_are_returned(self):
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            reverse("password-reset-confirm"),
+            {
+                "uid": uid,
+                "token": token,
+                "password": "123",
+                "password_confirmation": "123",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.json())
+
+    @override_settings(PASSWORD_RESET_TIMEOUT=60)
+    def test_expired_token_is_rejected(self):
+        issued_at = datetime(2026, 1, 1, 12, 0, 0)
+        with patch.object(password_reset_token_generator, "_now", return_value=issued_at):
+            token = password_reset_token_generator.make_token(self.user)
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        with patch.object(
+            password_reset_token_generator,
+            "_now",
+            return_value=issued_at + timedelta(seconds=61),
+        ):
+            response = self.client.post(
+                reverse("password-reset-confirm"),
+                {
+                    "uid": uid,
+                    "token": token,
+                    "password": "NewSecurePassword!456",
+                    "password_confirmation": "NewSecurePassword!456",
+                },
+            )
+        self.assertEqual(response.status_code, 400)
+
+    def test_invitation_token_cannot_be_used_as_password_reset_token(self):
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        invitation_token = default_token_generator.make_token(self.user)
+        response = self.client.post(
+            reverse("password-reset-confirm"),
+            {
+                "uid": uid,
+                "token": invitation_token,
+                "password": "NewSecurePassword!456",
+                "password_confirmation": "NewSecurePassword!456",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(
+        PASSWORD_RESET_RATE_LIMIT=2,
+        PASSWORD_RESET_RATE_WINDOW_SECONDS=900,
+    )
+    @patch("clients.views.send_password_reset_email")
+    def test_request_is_rate_limited_by_request_source(self, send_email):
+        for _ in range(2):
+            response = self.client.post(
+                reverse("password-reset-request"),
+                {"email": self.user.email},
+                REMOTE_ADDR="203.0.113.4",
+            )
+            self.assertEqual(response.status_code, 200)
+        response = self.client.post(
+            reverse("password-reset-request"),
+            {"email": self.user.email},
+            REMOTE_ADDR="203.0.113.4",
+        )
+        self.assertEqual(response.status_code, 429)
 
 
 class ProjectAdminTests(TestCase):

@@ -15,6 +15,99 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from .models import Client, Project
 from .permissions import has_portal_staff_access
 from .serializers import ClientSerializer, ProjectSerializer
+from .services import send_password_reset_email
+from .throttles import PasswordResetRequestThrottle
+from .tokens import password_reset_token_generator
+
+
+PASSWORD_RESET_RESPONSE = {
+    "detail": (
+        "If an active account exists for that email, "
+        "a password reset link has been sent."
+    )
+}
+
+
+def password_reset_user(uid, token):
+    try:
+        user_id = force_str(urlsafe_base64_decode(uid))
+        user = User.objects.get(pk=user_id, is_active=True)
+    except (
+        TypeError,
+        ValueError,
+        OverflowError,
+        User.DoesNotExist,
+    ):
+        return None
+
+    return user if password_reset_token_generator.check_token(user, token) else None
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [PasswordResetRequestThrottle]
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip()
+        users = User.objects.filter(
+            email__iexact=email,
+            is_active=True,
+        ).order_by("pk")
+
+        for user in users:
+            if not user.has_usable_password():
+                continue
+            try:
+                send_password_reset_email(user)
+            except Exception:
+                # The public response must never reveal account or provider state.
+                pass
+
+        return Response(PASSWORD_RESET_RESPONSE)
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        user = password_reset_user(
+            request.data.get("uid"),
+            request.data.get("token"),
+        )
+        if user is None:
+            return Response(
+                {"detail": "This password reset link is invalid or has expired."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        password = request.data.get("password")
+        confirmation = request.data.get("password_confirmation")
+        if not password:
+            return Response(
+                {"password": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if password != confirmation:
+            return Response(
+                {"password_confirmation": ["Passwords do not match."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            password_validation.validate_password(password, user)
+        except ValidationError as error:
+            return Response(
+                {"password": list(error.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.set_password(password)
+        user.save(update_fields=["password"])
+        return Response(
+            {"detail": "Your password has been reset. You can now sign in."}
+        )
 
 
 def invited_user(uid, token):
