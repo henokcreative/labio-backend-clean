@@ -103,50 +103,90 @@ class ClientAdmin(admin.ModelAdmin):
 
 
 class ProjectFileInlineForm(forms.ModelForm):
-    file = forms.FileField(required=False)
+    upload = forms.FileField(
+        required=False,
+        label="File",
+        help_text="For a replacement, add a new row and select the prior version under Supersedes.",
+    )
 
     class Meta:
         model = ProjectFile
-        fields = "__all__"
+        fields = ["upload", "display_name", "category", "supersedes"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["file"].required = not self.instance.pk
+        self.fields["upload"].required = not self.instance.pk
+        self.fields["upload"].disabled = bool(self.instance.pk)
+        if self.instance.project_id:
+            self.fields["supersedes"].queryset = ProjectFile.objects.filter(
+                project_id=self.instance.project_id
+            )
         if self.instance.pk:
-            for field_name in {"file", "category", "supersedes"}:
+            for field_name in {"category", "supersedes"}:
                 if field_name in self.fields:
                     self.fields[field_name].disabled = True
 
     def clean(self):
         cleaned_data = super().clean()
         if self.instance.pk:
-            for field_name in {"file", "category", "supersedes"}:
+            for field_name in {"category", "supersedes"}:
                 if field_name in self.changed_data:
                     self.add_error(
                         field_name,
                         "ProjectFile versions are immutable. Upload a new version instead.",
                     )
-        elif cleaned_data.get("file"):
+        elif cleaned_data.get("upload"):
             try:
-                inspect_proxy_upload(cleaned_data["file"])
+                inspect_proxy_upload(cleaned_data["upload"])
             except ValidationError as error:
-                self.add_error("file", error)
+                for message in error.messages:
+                    self.add_error("upload", message)
+            else:
+                # The model's provider field is deliberately excluded from this form.
+                # New uploads are handed to the existing upload service by save_formset.
+                self.instance.file = cleaned_data["upload"]
         return cleaned_data
 
 
 class ProjectFileInline(admin.TabularInline):
     model = ProjectFile
     form = ProjectFileInlineForm
-    extra = 0
+    extra = 1
     fields = [
-        "file", "category", "display_name", "supersedes", "uploaded_by",
-        "filename", "content_type", "extension", "size_bytes",
-        "provider_resource_type", "provider_delivery_type", "created_at",
+        "stored_file",
+        "upload",
+        "display_name",
+        "category",
+        "supersedes",
+        "workflow_state",
+        "uploaded_by",
+        "created_at",
     ]
     readonly_fields = [
-        "uploaded_by", "filename", "content_type", "extension", "size_bytes",
-        "provider_resource_type", "provider_delivery_type", "created_at",
+        "stored_file",
+        "workflow_state",
+        "uploaded_by",
+        "created_at",
     ]
+
+    @admin.display(description="Stored file")
+    def stored_file(self, obj):
+        if not obj or not obj.pk:
+            return "New upload"
+        return obj.filename or str(obj.file)
+
+    @admin.display(description="State")
+    def workflow_state(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        if obj.category == ProjectFile.Category.APPROVAL:
+            approval = obj.approvals.order_by("-updated_at").first()
+            return approval.get_status_display() if approval else "Approval required"
+        if obj.category == ProjectFile.Category.FINAL_DELIVERY:
+            return "Delivered"
+        if obj.category == ProjectFile.Category.PREVIEW:
+            return "Preview only"
+        return "Staff only"
 
     def has_delete_permission(self, request, obj=None):
         return False

@@ -7,7 +7,7 @@ from django.contrib import admin
 from django.contrib.auth.models import Permission, User
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
 from .admin import ProjectFileInline, ProjectFileInlineForm
@@ -252,7 +252,7 @@ class ProjectFileVersionTests(TestCase):
     def test_admin_disables_immutable_fields_and_inline_deletion(self):
         project_file = self.create_file(category=ProjectFile.Category.PREVIEW)
         form = ProjectFileInlineForm(instance=project_file)
-        self.assertTrue(form.fields["file"].disabled)
+        self.assertTrue(form.fields["upload"].disabled)
         self.assertTrue(form.fields["category"].disabled)
         self.assertTrue(form.fields["supersedes"].disabled)
         self.assertFalse(form.fields["display_name"].disabled)
@@ -309,6 +309,178 @@ class ProjectFileVersionTests(TestCase):
             size_bytes=5_000_000_000,
         )
         self.assertEqual(project_file.size_bytes, 5_000_000_000)
+
+
+class ProjectFileAdminInlineWorkflowTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_superuser(
+            "project-file-admin",
+            "project-file-admin@example.com",
+            "Password!123",
+        )
+        self.client_record = Client.objects.create(
+            name="Admin file client",
+            email="admin-file-client@example.com",
+        )
+        self.project = Project.objects.create(
+            client=self.client_record,
+            title="Admin file project",
+        )
+        self.provider = FakeProjectFileProvider()
+        self.request = RequestFactory().post(
+            f"/admin/clients/project/{self.project.pk}/change/"
+        )
+        self.request.user = self.staff
+        self.inline = ProjectFileInline(Project, admin.site)
+        self.project_admin = admin.site._registry[Project]
+
+    def submit_inline(
+        self,
+        *,
+        upload=None,
+        category=ProjectFile.Category.PREVIEW,
+        display_name="",
+        supersedes=None,
+        display_name_updates=None,
+        attempted_delete=None,
+    ):
+        formset_class = self.inline.get_formset(self.request, self.project)
+        prefix = formset_class.get_default_prefix()
+        current_formset = formset_class(instance=self.project, prefix=prefix)
+        existing = [form.instance for form in current_formset.initial_forms]
+        total_forms = len(existing) + (1 if upload else 0)
+        data = {
+            f"{prefix}-TOTAL_FORMS": str(total_forms),
+            f"{prefix}-INITIAL_FORMS": str(len(existing)),
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1000",
+        }
+        display_name_updates = display_name_updates or {}
+        for index, project_file in enumerate(existing):
+            data.update(
+                {
+                    f"{prefix}-{index}-id": str(project_file.pk),
+                    f"{prefix}-{index}-display_name": display_name_updates.get(
+                        project_file.pk, project_file.display_name
+                    ),
+                    f"{prefix}-{index}-category": project_file.category,
+                    f"{prefix}-{index}-supersedes": (
+                        str(project_file.supersedes_id)
+                        if project_file.supersedes_id
+                        else ""
+                    ),
+                }
+            )
+            if attempted_delete == project_file.pk:
+                data[f"{prefix}-{index}-DELETE"] = "on"
+
+        files = {}
+        if upload:
+            index = len(existing)
+            data.update(
+                {
+                    f"{prefix}-{index}-id": "",
+                    f"{prefix}-{index}-display_name": display_name,
+                    f"{prefix}-{index}-category": category,
+                    f"{prefix}-{index}-supersedes": (
+                        str(supersedes.pk) if supersedes else ""
+                    ),
+                }
+            )
+            files[f"{prefix}-{index}-upload"] = upload
+
+        formset = formset_class(
+            data=data,
+            files=files,
+            instance=self.project,
+            prefix=prefix,
+        )
+        self.assertTrue(formset.is_valid(), formset.errors)
+        with patch(
+            "clients.admin.create_project_file",
+            side_effect=lambda **kwargs: create_project_file(
+                **kwargs, provider=self.provider
+            ),
+        ):
+            self.project_admin.save_formset(
+                self.request,
+                form=None,
+                formset=formset,
+                change=True,
+            )
+        return list(self.project.files.order_by("created_at", "pk"))
+
+    def test_reopening_project_can_add_repeated_files_without_reuploading_existing_rows(self):
+        files = self.submit_inline(
+            upload=uploaded_file("first.pdf", b"%PDF-1.7\nfirst", "application/pdf"),
+            display_name="First review",
+        )
+        first = files[0]
+        first_stored_value = str(first.file)
+
+        for number in range(2, 5):
+            files = self.submit_inline(
+                upload=uploaded_file(
+                    f"review-{number}.pdf",
+                    f"%PDF-1.7\nreview {number}".encode(),
+                    "application/pdf",
+                ),
+                display_name=f"Review {number}",
+            )
+
+        first.refresh_from_db()
+        self.assertEqual(len(files), 4)
+        self.assertEqual(str(first.file), first_stored_value)
+        self.assertEqual(
+            {project_file.filename for project_file in files},
+            {"first.pdf", "review-2.pdf", "review-3.pdf", "review-4.pdf"},
+        )
+
+    def test_existing_metadata_can_change_without_a_new_upload(self):
+        first = self.submit_inline(
+            upload=uploaded_file("first.pdf", b"%PDF-1.7\nfirst", "application/pdf")
+        )[0]
+        stored_value = str(first.file)
+
+        self.submit_inline(display_name_updates={first.pk: "Client review copy"})
+
+        first.refresh_from_db()
+        self.assertEqual(first.display_name, "Client review copy")
+        self.assertEqual(str(first.file), stored_value)
+
+    def test_explicit_replacement_is_saved_as_a_new_immutable_version(self):
+        first = self.submit_inline(
+            upload=uploaded_file("first.pdf", b"%PDF-1.7\nfirst", "application/pdf")
+        )[0]
+        stored_value = str(first.file)
+
+        files = self.submit_inline(
+            upload=uploaded_file(
+                "replacement.pdf", b"%PDF-1.7\nreplacement", "application/pdf"
+            ),
+            supersedes=first,
+        )
+
+        first.refresh_from_db()
+        replacement = files[-1]
+        self.assertEqual(str(first.file), stored_value)
+        self.assertEqual(replacement.supersedes, first)
+        self.assertEqual(replacement.filename, "replacement.pdf")
+
+    def test_delete_flag_is_not_available_and_does_not_corrupt_other_versions(self):
+        first = self.submit_inline(
+            upload=uploaded_file("first.pdf", b"%PDF-1.7\nfirst", "application/pdf")
+        )[0]
+        second = self.submit_inline(
+            upload=uploaded_file("second.pdf", b"%PDF-1.7\nsecond", "application/pdf")
+        )[1]
+
+        formset_class = self.inline.get_formset(self.request, self.project)
+        self.assertFalse(formset_class.can_delete)
+        self.submit_inline(attempted_delete=first.pk)
+
+        self.assertTrue(ProjectFile.objects.filter(pk=first.pk).exists())
+        self.assertTrue(ProjectFile.objects.filter(pk=second.pk).exists())
 
 
 class ProjectFileAccessContractTests(TestCase):
