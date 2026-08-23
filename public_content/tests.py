@@ -1,15 +1,19 @@
 import base64
 from datetime import time, timedelta
+from importlib import import_module
+from types import SimpleNamespace
 
+from django.apps import apps as django_apps
 from django.contrib.auth.models import Group, Permission, User
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.urls import resolve
 from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.images import get_image_model
-from wagtail.models import Page, Site
+from wagtail.models import Page, PageViewRestriction, Site
 
 from clients.permissions import PORTAL_STAFF_PERMISSION
 from .models import (
@@ -30,6 +34,8 @@ from .models import (
     PricingPage,
     ServiceIndexPage,
     ServicePage,
+    ServicePageRelatedCaseStudy,
+    ServicePageTestimonial,
     SiteSettings,
     StandardPage,
     Testimonial,
@@ -148,6 +154,11 @@ class PublicContentSecurityTests(TestCase):
         cls.portfolio_index.add_child(instance=cls.case_study)
         cls.case_study.services.add(cls.service)
         cls.case_study.save_revision().publish()
+        ServicePageRelatedCaseStudy.objects.create(
+            page=cls.service,
+            case_study=cls.case_study,
+            sort_order=0,
+        )
 
         cls.about = AboutPage(
             title="About",
@@ -338,6 +349,19 @@ class PublicContentSecurityTests(TestCase):
             active=True,
             live=True,
         )
+        for sort_order, testimonial in enumerate(
+            (
+                cls.second_published_testimonial,
+                cls.draft_testimonial,
+                cls.inactive_testimonial,
+                cls.published_testimonial,
+            )
+        ):
+            ServicePageTestimonial.objects.create(
+                page=cls.service,
+                testimonial=testimonial,
+                sort_order=sort_order,
+            )
         for sort_order, testimonial in enumerate(
             (
                 cls.draft_testimonial,
@@ -773,14 +797,32 @@ class PublicContentSecurityTests(TestCase):
         self.assertEqual(home_data["latest_updates"], [])
         self.assertTrue(home_data["contact_enabled"])
         self.assertEqual(home_data["contact_eyebrow"], "Contact")
+        service_data = responses[self.service.pk]
+        self.assertTrue(service_data["testimonials_enabled"])
+        self.assertEqual(
+            service_data["testimonials_heading"],
+            "Client perspectives",
+        )
+        self.assertEqual(
+            [item["id"] for item in service_data["testimonials"]],
+            [
+                self.second_published_testimonial.pk,
+                self.published_testimonial.pk,
+            ],
+        )
+        self.assertTrue(service_data["related_work_enabled"])
+        self.assertEqual(service_data["related_work_heading"], "Related work")
+        self.assertEqual(service_data["cta_heading"], "Have a project in mind?")
         self.assertEqual(
             [
                 item["id"]
-                for item in responses[self.service.pk][
-                    "related_case_studies"
-                ]
+                for item in service_data["related_case_studies"]
             ],
             [self.case_study.pk],
+        )
+        self.assertEqual(
+            set(service_data["related_case_studies"][0]["hero_image"]),
+            {"url", "width", "height", "alt"},
         )
         self.assertEqual(
             [item["id"] for item in responses[self.case_study.pk]["services"]],
@@ -847,6 +889,155 @@ class PublicContentSecurityTests(TestCase):
             ["heading", "rich_text"],
         )
         self.assertEqual(about_data["hero_image"]["alt"], "The LaBio Media team")
+
+    def test_service_related_work_is_selected_ordered_and_public(self):
+        selected = CaseStudyPage(
+            title="Second selected project",
+            slug="second-selected-project",
+            category="Editorial",
+            summary="A second selected project.",
+            hero_image=self.image,
+            hero_image_alt="Second selected project",
+        )
+        self.portfolio_index.add_child(instance=selected)
+        selected.save_revision().publish()
+        selected.services.add(self.service)
+
+        unselected = CaseStudyPage(
+            title="Unselected project",
+            slug="unselected-project",
+            category="Editorial",
+            summary="Related as a capability, but not editorially selected.",
+            hero_image=self.image,
+            hero_image_alt="Unselected project",
+        )
+        self.portfolio_index.add_child(instance=unselected)
+        unselected.save_revision().publish()
+        unselected.services.add(self.service)
+
+        draft = CaseStudyPage(
+            title="Draft selected project",
+            slug="draft-selected-project",
+            category="Editorial",
+            summary="Draft content.",
+            hero_image=self.image,
+            hero_image_alt="Draft selected project",
+            live=False,
+        )
+        self.portfolio_index.add_child(instance=draft)
+        draft.save_revision()
+
+        private = CaseStudyPage(
+            title="Private selected project",
+            slug="private-selected-project",
+            category="Editorial",
+            summary="Private content.",
+            hero_image=self.image,
+            hero_image_alt="Private selected project",
+        )
+        self.portfolio_index.add_child(instance=private)
+        private.save_revision().publish()
+        PageViewRestriction.objects.create(
+            page=private,
+            restriction_type=PageViewRestriction.LOGIN,
+        )
+
+        existing_relation = ServicePageRelatedCaseStudy.objects.get(
+            page=self.service,
+            case_study=self.case_study,
+        )
+        existing_relation.sort_order = 2
+        existing_relation.save(update_fields=["sort_order"])
+        ServicePageRelatedCaseStudy.objects.create(
+            page=self.service,
+            case_study=draft,
+            sort_order=0,
+        )
+        ServicePageRelatedCaseStudy.objects.create(
+            page=self.service,
+            case_study=selected,
+            sort_order=1,
+        )
+        ServicePageRelatedCaseStudy.objects.create(
+            page=self.service,
+            case_study=private,
+            sort_order=3,
+        )
+
+        response = self.client.get(f"/api/cms/v2/pages/{self.service.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["id"] for item in response.json()["related_case_studies"]],
+            [selected.pk, self.case_study.pk],
+        )
+        self.assertNotIn(
+            unselected.pk,
+            [item["id"] for item in response.json()["related_case_studies"]],
+        )
+
+    def test_service_editorial_sections_can_be_empty_or_disabled(self):
+        Testimonial.objects.create(
+            quote="Related globally but not selected.",
+            person="Unselected Person",
+            related_service=self.service,
+            active=True,
+            live=True,
+        )
+        ServicePageTestimonial.objects.filter(page=self.service).delete()
+        response = self.client.get(f"/api/cms/v2/pages/{self.service.pk}/")
+
+        self.assertTrue(response.json()["testimonials_enabled"])
+        self.assertEqual(response.json()["testimonials"], [])
+
+        self.service.testimonials_enabled = False
+        self.service.related_work_enabled = False
+        self.service.testimonials_heading = "Selected client perspectives"
+        self.service.related_work_heading = "Selected projects"
+        self.service.cta_heading = "Discuss your project"
+        self.service.save_revision().publish()
+        response = self.client.get(f"/api/cms/v2/pages/{self.service.pk}/")
+        data = response.json()
+
+        self.assertFalse(data["testimonials_enabled"])
+        self.assertEqual(data["testimonials"], [])
+        self.assertFalse(data["related_work_enabled"])
+        self.assertEqual(data["related_case_studies"], [])
+        self.assertEqual(
+            data["testimonials_heading"],
+            "Selected client perspectives",
+        )
+        self.assertEqual(data["related_work_heading"], "Selected projects")
+        self.assertEqual(data["cta_heading"], "Discuss your project")
+
+    def test_service_editorial_migration_backfills_existing_relationships(self):
+        ServicePageRelatedCaseStudy.objects.filter(page=self.service).delete()
+        ServicePageTestimonial.objects.filter(page=self.service).delete()
+        migration = import_module(
+            "public_content.migrations.0012_servicepage_cta_heading_and_more"
+        )
+
+        migration.backfill_service_editorial_selections(
+            django_apps,
+            SimpleNamespace(connection=connection),
+        )
+
+        self.assertEqual(
+            list(
+                ServicePageRelatedCaseStudy.objects.filter(page=self.service)
+                .order_by("sort_order", "pk")
+                .values_list("case_study_id", flat=True)
+            ),
+            [self.case_study.pk],
+        )
+        self.assertEqual(
+            list(
+                ServicePageTestimonial.objects.filter(page=self.service)
+                .order_by("sort_order", "pk")
+                .values_list("testimonial_id", flat=True)
+            ),
+            [self.second_published_testimonial.pk],
+        )
 
     def test_case_study_editorial_fields_are_optional(self):
         minimal = CaseStudyPage(

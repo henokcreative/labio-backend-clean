@@ -18,6 +18,7 @@ from .api_fields import (
     ActivePricingItemsField,
     ControlledImageRenditionField,
     OrderedCollaboratorsField,
+    OrderedRelatedCaseStudiesField,
     OrderedRelatedPagesField,
     OrderedTestimonialsField,
     PublicPageListField,
@@ -423,12 +424,40 @@ class ServicePage(HeadlessPageMixin, PublicSEOMixin, Page):
         blank=True,
         use_json_field=True,
     )
+    testimonials_enabled = models.BooleanField(
+        default=True,
+        help_text="Show selected testimonials on the public service page.",
+    )
+    testimonials_heading = models.CharField(
+        max_length=255,
+        default="Client perspectives",
+    )
+    related_work_enabled = models.BooleanField(
+        default=True,
+        help_text="Show selected case studies on the public service page.",
+    )
+    related_work_heading = models.CharField(
+        max_length=255,
+        default="Related work",
+    )
+    cta_heading = models.CharField(
+        max_length=255,
+        default="Have a project in mind?",
+    )
     cta_label = models.CharField(max_length=100)
     cta_url = models.URLField(max_length=500)
 
     @property
-    def published_related_case_studies(self):
-        return CaseStudyPage.objects.live().public().filter(services=self)
+    def public_testimonial_relations(self):
+        if not self.testimonials_enabled:
+            return self.service_testimonials.none()
+        return self.service_testimonials
+
+    @property
+    def public_related_case_study_relations(self):
+        if not self.related_work_enabled:
+            return self.selected_related_case_studies.none()
+        return self.selected_related_case_studies
 
     content_panels = Page.content_panels + [
         FieldPanel("summary"),
@@ -437,6 +466,21 @@ class ServicePage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("body"),
         FieldPanel("capabilities"),
         FieldPanel("process"),
+        FieldPanel("testimonials_enabled"),
+        FieldPanel("testimonials_heading"),
+        InlinePanel(
+            "service_testimonials",
+            label="Testimonial",
+            help_text="Choose and drag testimonials into public display order.",
+        ),
+        FieldPanel("related_work_enabled"),
+        FieldPanel("related_work_heading"),
+        InlinePanel(
+            "selected_related_case_studies",
+            label="Related case study",
+            help_text="Choose and drag case studies into public display order.",
+        ),
+        FieldPanel("cta_heading"),
         FieldPanel("cta_label"),
         FieldPanel("cta_url"),
     ]
@@ -454,15 +498,74 @@ class ServicePage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("body"),
         APIField("capabilities"),
         APIField("process"),
+        APIField("testimonials_enabled"),
+        APIField("testimonials_heading"),
+        APIField(
+            "testimonials",
+            serializer=OrderedTestimonialsField(
+                source="public_testimonial_relations"
+            ),
+        ),
+        APIField("related_work_enabled"),
+        APIField("related_work_heading"),
         APIField("cta_label"),
         APIField("cta_url"),
+        APIField("cta_heading"),
         APIField(
             "related_case_studies",
-            serializer=PublicPageListField(
-                source="published_related_case_studies",
+            serializer=OrderedRelatedCaseStudiesField(
+                source="public_related_case_study_relations",
             ),
         ),
     ]
+
+
+class ServicePageTestimonial(Orderable):
+    page = ParentalKey(
+        ServicePage,
+        related_name="service_testimonials",
+        on_delete=models.CASCADE,
+    )
+    testimonial = models.ForeignKey(
+        "public_content.Testimonial",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+
+    panels = [FieldPanel("testimonial")]
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["page", "testimonial"],
+                name="unique_servicepage_testimonial",
+            )
+        ]
+
+
+class ServicePageRelatedCaseStudy(Orderable):
+    page = ParentalKey(
+        ServicePage,
+        related_name="selected_related_case_studies",
+        on_delete=models.CASCADE,
+    )
+    case_study = models.ForeignKey(
+        "public_content.CaseStudyPage",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+
+    panels = [FieldPanel("case_study")]
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["page", "case_study"],
+                name="unique_servicepage_related_case_study",
+            )
+        ]
 
 
 class PortfolioIndexPage(HeadlessPageMixin, PublicSEOMixin, Page):
