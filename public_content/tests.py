@@ -114,8 +114,6 @@ class PublicContentSecurityTests(TestCase):
             title="Film production",
             slug="film-production",
             summary="Public service summary.",
-            hero_image=cls.image,
-            hero_image_alt="Film production",
             cta_label="Start a film project",
             cta_url="https://example.com/contact",
         )
@@ -798,6 +796,7 @@ class PublicContentSecurityTests(TestCase):
         self.assertTrue(home_data["contact_enabled"])
         self.assertEqual(home_data["contact_eyebrow"], "Contact")
         service_data = responses[self.service.pk]
+        self.assertNotIn("hero_image", service_data)
         self.assertTrue(service_data["testimonials_enabled"])
         self.assertEqual(
             service_data["testimonials_heading"],
@@ -1231,8 +1230,6 @@ class PublicContentSecurityTests(TestCase):
             slug="draft-service",
             live=False,
             summary="Not public.",
-            hero_image=self.image,
-            hero_image_alt="Draft service",
             cta_label="Contact",
             cta_url="https://example.com/contact",
         )

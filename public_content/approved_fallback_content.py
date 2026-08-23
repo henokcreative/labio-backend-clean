@@ -8,8 +8,6 @@ SERVICES = (
             "Bespoke websites and digital experiences for research groups, "
             "organisations and scientific projects."
         ),
-        "hero_asset": "web-digital",
-        "hero_alt": "A LaBio Media website project",
         "capabilities": (
             ("Web design", "Clear, editorial digital systems."),
             ("Development", "Responsive, maintainable websites."),
@@ -25,8 +23,6 @@ SERVICES = (
             "Research films, interviews and visual storytelling that make "
             "complex ideas easier to understand."
         ),
-        "hero_asset": "video-production",
-        "hero_alt": "Research video production",
         "capabilities": (
             ("Research films", "Stories grounded in scientific context."),
             ("Interviews", "Human, confident on-camera communication."),
@@ -42,8 +38,6 @@ SERVICES = (
             "People, laboratories, events and environments captured with "
             "purpose and attention to detail."
         ),
-        "hero_asset": "photography",
-        "hero_alt": "Photography in a research laboratory",
         "capabilities": (
             ("People", "Natural portraits in real working environments."),
             ("Laboratories", "Credible images of research in practice."),
@@ -59,8 +53,6 @@ SERVICES = (
             "Visual identities, publications, infographics and digital "
             "materials that make complex information clear."
         ),
-        "hero_asset": "brand-design",
-        "hero_alt": "Scientific communication design",
         "capabilities": (
             ("Visual identity", "Distinct systems with scientific credibility."),
             ("Publications", "Clear editorial design for detailed information."),
