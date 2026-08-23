@@ -140,6 +140,38 @@ class OrderedRelatedPagesField(Field):
         ]
 
 
+class OrderedRelatedCaseStudiesField(Field):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("read_only", True)
+        super().__init__(**kwargs)
+
+    def to_representation(self, value):
+        relations = list(
+            value.select_related(
+                "case_study",
+                "case_study__hero_image",
+            ).order_by("sort_order", "pk")
+        )
+        pages = [relation.case_study for relation in relations]
+        public_ids = {page.pk for page in only_public_pages(pages)}
+        return [
+            {
+                "id": page.pk,
+                "title": page.title,
+                "slug": page.slug,
+                "summary": page.summary,
+                "category": page.category,
+                "hero_image": get_rendition_data(
+                    page.hero_image,
+                    "fill-1200x800",
+                    page.hero_image_alt,
+                ),
+            }
+            for page in pages
+            if page.pk in public_ids
+        ]
+
+
 class OrderedCollaboratorsField(Field):
     def __init__(self, **kwargs):
         kwargs.setdefault("read_only", True)
