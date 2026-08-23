@@ -405,14 +405,6 @@ class ServicePage(HeadlessPageMixin, PublicSEOMixin, Page):
     subpage_types = []
 
     summary = models.TextField(max_length=1000)
-    hero_image = models.ForeignKey(
-        "wagtailimages.Image",
-        null=True,
-        blank=False,
-        on_delete=models.SET_NULL,
-        related_name="+",
-    )
-    hero_image_alt = models.CharField(max_length=255)
     body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
     capabilities = StreamField(
         [("capability", CapabilityBlock())],
@@ -461,8 +453,6 @@ class ServicePage(HeadlessPageMixin, PublicSEOMixin, Page):
 
     content_panels = Page.content_panels + [
         FieldPanel("summary"),
-        FieldPanel("hero_image"),
-        FieldPanel("hero_image_alt"),
         FieldPanel("body"),
         FieldPanel("capabilities"),
         FieldPanel("process"),
@@ -487,14 +477,6 @@ class ServicePage(HeadlessPageMixin, PublicSEOMixin, Page):
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
     api_fields = PublicSEOMixin.seo_api_fields + [
         APIField("summary"),
-        APIField(
-            "hero_image",
-            serializer=ControlledImageRenditionField(
-                "hero_image",
-                "hero_image_alt",
-                "fill-1920x1080",
-            ),
-        ),
         APIField("body"),
         APIField("capabilities"),
         APIField("process"),

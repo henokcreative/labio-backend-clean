@@ -121,7 +121,7 @@ class Command(BaseCommand):
                 title="Services",
                 intro=[],
             )
-            services = self._upsert_services(service_index, images)
+            services = self._upsert_services(service_index)
 
             portfolio_index = self._upsert_page(
                 home,
@@ -286,7 +286,7 @@ class Command(BaseCommand):
         self.stats["pages_created" if created else "pages_updated"] += 1
         return page
 
-    def _upsert_services(self, service_index, images):
+    def _upsert_services(self, service_index):
         services = {}
         for content in SERVICES:
             capabilities = [
@@ -302,8 +302,6 @@ class Command(BaseCommand):
                 content["slug"],
                 title=content["title"],
                 summary=content["summary"],
-                hero_image=images[content["hero_asset"]],
-                hero_image_alt=content["hero_alt"],
                 body=[],
                 capabilities=capabilities,
                 process=[],
