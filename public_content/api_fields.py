@@ -218,6 +218,7 @@ class OrderedTestimonialsField(Field):
     def to_representation(self, value):
         relations = value.select_related(
             "testimonial",
+            "testimonial__portrait",
             "testimonial__related_service",
             "testimonial__related_case_study",
         ).order_by("sort_order", "pk")
@@ -231,6 +232,11 @@ class OrderedTestimonialsField(Field):
                     "id": testimonial.pk,
                     "quote": testimonial.quote,
                     "person": testimonial.person,
+                    "portrait": get_rendition_data(
+                        testimonial.portrait,
+                        "fill-144x144",
+                        f"Portrait of {testimonial.person}",
+                    ),
                     "role": testimonial.role,
                     "organization": testimonial.organization,
                     "related_service": self.public_relation(

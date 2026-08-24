@@ -322,6 +322,7 @@ class PublicContentSecurityTests(TestCase):
         cls.published_testimonial = Testimonial.objects.create(
             quote="A published testimonial.",
             person="Published Person",
+            portrait=cls.image,
             role="Producer",
             organization="Published Organization",
             active=True,
@@ -575,6 +576,31 @@ class PublicContentSecurityTests(TestCase):
             people,
             {"Published Person", "Second Published Person"},
         )
+        published = next(
+            item
+            for item in response.json()
+            if item["person"] == "Published Person"
+        )
+        self.assertEqual(
+            set(published["portrait"]),
+            {"url", "width", "height", "alt"},
+        )
+        self.assertLessEqual(published["portrait"]["width"], 144)
+        self.assertLessEqual(published["portrait"]["height"], 144)
+        self.assertEqual(
+            published["portrait"]["width"],
+            published["portrait"]["height"],
+        )
+        self.assertEqual(
+            published["portrait"]["alt"],
+            "Portrait of Published Person",
+        )
+        second = next(
+            item
+            for item in response.json()
+            if item["person"] == "Second Published Person"
+        )
+        self.assertIsNone(second["portrait"])
 
     def test_settings_endpoint_exposes_only_public_fields(self):
         response = self.client.get("/api/cms/v2/settings/")
@@ -768,11 +794,16 @@ class PublicContentSecurityTests(TestCase):
                 "id",
                 "quote",
                 "person",
+                "portrait",
                 "role",
                 "organization",
                 "related_service",
                 "related_case_study",
             },
+        )
+        self.assertEqual(
+            home_data["testimonials"][0]["portrait"]["alt"],
+            "Portrait of Published Person",
         )
         self.assertTrue(home_data["about_enabled"])
         self.assertEqual(home_data["about_eyebrow"], "About LaBio Media")

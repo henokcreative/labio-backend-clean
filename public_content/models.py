@@ -1332,6 +1332,13 @@ class Collaborator(DraftStateMixin, RevisionMixin, models.Model):
 class Testimonial(DraftStateMixin, RevisionMixin, models.Model):
     quote = models.TextField(max_length=2000)
     person = models.CharField(max_length=255)
+    portrait = models.ForeignKey(
+        "wagtailimages.Image",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     role = models.CharField(max_length=255, blank=True)
     organization = models.CharField(max_length=255, blank=True)
     related_service = models.ForeignKey(
@@ -1353,6 +1360,7 @@ class Testimonial(DraftStateMixin, RevisionMixin, models.Model):
     panels = [
         FieldPanel("quote"),
         FieldPanel("person"),
+        FieldPanel("portrait"),
         FieldPanel("role"),
         FieldPanel("organization"),
         FieldPanel("related_service"),
