@@ -1,3 +1,6 @@
+from urllib.parse import parse_qs, urlparse
+
+from django.core.exceptions import ValidationError
 from wagtail import blocks
 from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images.blocks import ImageChooserBlock
@@ -54,6 +57,185 @@ class GalleryImageBlock(PublicImageBlock):
     class Meta:
         icon = "image"
         label = "Gallery image"
+
+
+class ShowcaseImageBlock(PublicImageBlock):
+    class Meta:
+        icon = "image"
+        label = "Showcase image"
+
+
+class PhotoSliderBlock(blocks.StructBlock):
+    heading = blocks.CharBlock(required=False, max_length=255)
+    images = blocks.ListBlock(
+        ShowcaseImageBlock(),
+        min_num=2,
+        max_num=20,
+        label="Slides",
+    )
+
+    class Meta:
+        icon = "image"
+        label = "Photo slider"
+
+
+class MasonryGalleryBlock(blocks.StructBlock):
+    heading = blocks.CharBlock(required=False, max_length=255)
+    images = blocks.ListBlock(
+        ShowcaseImageBlock(),
+        min_num=2,
+        max_num=30,
+        label="Images",
+    )
+
+    class Meta:
+        icon = "image"
+        label = "Masonry gallery"
+
+
+class ImageGridBlock(blocks.StructBlock):
+    heading = blocks.CharBlock(required=False, max_length=255)
+    columns = blocks.ChoiceBlock(
+        choices=[("2", "Two columns"), ("3", "Three columns")],
+        default="3",
+    )
+    images = blocks.ListBlock(
+        ShowcaseImageBlock(),
+        min_num=1,
+        max_num=24,
+        label="Images",
+    )
+
+    class Meta:
+        icon = "grip"
+        label = "Image grid"
+
+
+class ImagePairBlock(blocks.StructBlock):
+    heading = blocks.CharBlock(required=False, max_length=255)
+    first_image = ShowcaseImageBlock(label="First image")
+    second_image = ShowcaseImageBlock(label="Second image")
+
+    class Meta:
+        icon = "image"
+        label = "Image pair"
+
+
+class VideoShowcaseBlock(blocks.StructBlock):
+    ALLOWED_HOSTS = {
+        "youtu.be",
+        "youtube.com",
+        "www.youtube.com",
+        "vimeo.com",
+        "www.vimeo.com",
+    }
+
+    heading = blocks.CharBlock(required=False, max_length=255)
+    url = blocks.URLBlock(label="YouTube or Vimeo URL")
+    caption = blocks.CharBlock(required=False, max_length=500)
+
+    def clean(self, value):
+        cleaned = super().clean(value)
+        parsed = urlparse(cleaned["url"])
+        hostname = (parsed.hostname or "").lower()
+        has_video_id = (
+            (hostname == "youtu.be" and bool(parsed.path.strip("/")))
+            or (
+                hostname in {"youtube.com", "www.youtube.com"}
+                and bool(parse_qs(parsed.query).get("v", [""])[0])
+            )
+            or (
+                hostname in {"vimeo.com", "www.vimeo.com"}
+                and bool(parsed.path.strip("/").split("/")[0])
+            )
+        )
+        if hostname not in self.ALLOWED_HOSTS or not has_video_id:
+            raise blocks.StructBlockValidationError(
+                block_errors={
+                    "url": ValidationError(
+                        "Use a public YouTube or Vimeo URL."
+                    )
+                }
+            )
+        return cleaned
+
+    class Meta:
+        icon = "media"
+        label = "Video embed"
+
+
+class WebsitePreviewItemBlock(blocks.StructBlock):
+    image = ImageChooserBlock(required=True)
+    alt_text = blocks.CharBlock(required=True, max_length=255)
+    label = blocks.CharBlock(max_length=150)
+    url = blocks.URLBlock(required=False, label="Optional destination URL")
+    caption = blocks.CharBlock(required=False, max_length=500)
+
+    def get_api_representation(self, value, context=None):
+        return {
+            "image": get_rendition_data(
+                value.get("image"),
+                "max-1400x1000",
+                value.get("alt_text", ""),
+            ),
+            "label": value.get("label", ""),
+            "url": value.get("url", ""),
+            "caption": value.get("caption", ""),
+        }
+
+    class Meta:
+        icon = "site"
+        label = "Website preview"
+
+
+class WebsitePreviewGridBlock(blocks.StructBlock):
+    heading = blocks.CharBlock(required=False, max_length=255)
+    items = blocks.ListBlock(
+        WebsitePreviewItemBlock(),
+        min_num=1,
+        max_num=12,
+        label="Website previews",
+    )
+
+    class Meta:
+        icon = "site"
+        label = "Website preview grid"
+
+
+class WideImageBlock(blocks.StructBlock):
+    heading = blocks.CharBlock(required=False, max_length=255)
+    image = ImageChooserBlock(required=True)
+    alt_text = blocks.CharBlock(required=True, max_length=255)
+    caption = blocks.CharBlock(required=False, max_length=500)
+
+    def get_api_representation(self, value, context=None):
+        return {
+            "heading": value.get("heading", ""),
+            "image": get_rendition_data(
+                value.get("image"),
+                "max-2000x1400",
+                value.get("alt_text", ""),
+            ),
+            "caption": value.get("caption", ""),
+        }
+
+    class Meta:
+        icon = "image"
+        label = "Wide image"
+
+
+class CaseStudyShowcaseBlock(blocks.StreamBlock):
+    photo_slider = PhotoSliderBlock()
+    masonry_gallery = MasonryGalleryBlock()
+    image_grid = ImageGridBlock()
+    image_pair = ImagePairBlock()
+    video = VideoShowcaseBlock()
+    website_preview_grid = WebsitePreviewGridBlock()
+    wide_image = WideImageBlock()
+
+    class Meta:
+        icon = "image"
+        label = "Visual showcase"
 
 
 class QuoteBlock(blocks.StructBlock):

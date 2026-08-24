@@ -16,6 +16,7 @@ from wagtail.images import get_image_model
 from wagtail.models import Page, PageViewRestriction, Site
 
 from clients.permissions import PORTAL_STAFF_PERMISSION
+from .blocks import CaseStudyShowcaseBlock
 from .models import (
     AboutPage,
     AboutPageTestimonial,
@@ -1065,6 +1066,167 @@ class PublicContentSecurityTests(TestCase):
         self.assertEqual(data["project_url"], "")
         self.assertEqual(data["cta_label"], "")
         self.assertEqual(data["cta_url"], "")
+        self.assertEqual(data["showcase"], [])
+
+    def test_case_study_showcase_serializes_controlled_ordered_modules(self):
+        image_value = {
+            "image": self.image,
+            "alt_text": "A controlled showcase image",
+            "caption": "Optional editorial caption",
+        }
+        showcase = [
+            (
+                "photo_slider",
+                {
+                    "heading": "Photography",
+                    "images": [image_value, image_value],
+                },
+            ),
+            (
+                "masonry_gallery",
+                {
+                    "heading": "Details",
+                    "images": [image_value, image_value],
+                },
+            ),
+            (
+                "image_grid",
+                {
+                    "heading": "Applications",
+                    "columns": "3",
+                    "images": [image_value],
+                },
+            ),
+            (
+                "image_pair",
+                {
+                    "heading": "Before and after",
+                    "first_image": image_value,
+                    "second_image": image_value,
+                },
+            ),
+            (
+                "video",
+                {
+                    "heading": "Research story",
+                    "url": "https://www.youtube.com/watch?v=abc123",
+                    "caption": "A consent-aware video.",
+                },
+            ),
+            (
+                "website_preview_grid",
+                {
+                    "heading": "Website views",
+                    "items": [
+                        {
+                            "image": self.image,
+                            "alt_text": "Website homepage preview",
+                            "label": "Homepage",
+                            "url": "https://example.com/project",
+                            "caption": "Desktop view",
+                        }
+                    ],
+                },
+            ),
+            (
+                "wide_image",
+                {
+                    "heading": "Final composition",
+                    "image": self.image,
+                    "alt_text": "Final visual composition",
+                    "caption": "Wide editorial image",
+                },
+            ),
+        ]
+        page = CaseStudyPage(
+            title="Showcase project",
+            slug="showcase-project",
+            category="Mixed",
+            hero_image=self.image,
+            hero_image_alt="Showcase project",
+            showcase=showcase,
+        )
+        self.portfolio_index.add_child(instance=page)
+        page.save_revision().publish()
+
+        response = self.client.get(f"/api/cms/v2/pages/{page.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        blocks = response.json()["showcase"]
+        self.assertEqual(
+            [block["type"] for block in blocks],
+            [
+                "photo_slider",
+                "masonry_gallery",
+                "image_grid",
+                "image_pair",
+                "video",
+                "website_preview_grid",
+                "wide_image",
+            ],
+        )
+        slider_image = blocks[0]["value"]["images"][0]
+        self.assertEqual(
+            set(slider_image),
+            {"url", "width", "height", "alt", "caption"},
+        )
+        self.assertEqual(slider_image["alt"], "A controlled showcase image")
+        self.assertNotIn("file", slider_image)
+        self.assertNotIn("original", slider_image)
+        self.assertEqual(blocks[2]["value"]["columns"], "3")
+        self.assertEqual(
+            blocks[4]["value"]["url"],
+            "https://www.youtube.com/watch?v=abc123",
+        )
+        preview = blocks[5]["value"]["items"][0]
+        self.assertEqual(preview["label"], "Homepage")
+        self.assertEqual(preview["url"], "https://example.com/project")
+        self.assertEqual(
+            set(blocks[6]["value"]["image"]),
+            {"url", "width", "height", "alt"},
+        )
+
+    def test_case_study_showcase_validates_media_and_urls(self):
+        showcase_block = CaseStudyShowcaseBlock()
+        slider = showcase_block.child_blocks["photo_slider"]
+        video = showcase_block.child_blocks["video"]
+        website_preview = (
+            showcase_block.child_blocks["website_preview_grid"]
+            .child_blocks["items"]
+            .child_block
+        )
+
+        with self.assertRaises(ValidationError):
+            slider.clean(
+                {
+                    "heading": "Not enough slides",
+                    "images": [
+                        {
+                            "image": self.image,
+                            "alt_text": "Only one image",
+                            "caption": "",
+                        }
+                    ],
+                }
+            )
+        with self.assertRaises(ValidationError):
+            video.clean(
+                {
+                    "heading": "Unsupported media",
+                    "url": "https://example.com/video",
+                    "caption": "",
+                }
+            )
+        with self.assertRaises(ValidationError):
+            website_preview.clean(
+                {
+                    "image": self.image,
+                    "alt_text": "Website preview",
+                    "label": "Unsafe link",
+                    "url": "javascript:alert(1)",
+                    "caption": "",
+                }
+            )
 
     def test_about_testimonial_selection_can_be_empty_or_disabled(self):
         AboutPageTestimonial.objects.filter(page=self.about).delete()
