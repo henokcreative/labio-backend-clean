@@ -26,6 +26,7 @@ from .api_fields import (
 )
 from .blocks import (
     CapabilityBlock,
+    CaseStudyShowcaseBlock,
     GalleryImageBlock,
     NavigationLinkBlock,
     ProcessStepBlock,
@@ -799,6 +800,15 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
     cta_label = models.CharField(max_length=100, blank=True)
     cta_url = models.URLField(max_length=500, blank=True)
     body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
+    showcase = StreamField(
+        CaseStudyShowcaseBlock(),
+        blank=True,
+        use_json_field=True,
+        help_text=(
+            "Optional ordered visual modules. When empty, the legacy embed "
+            "and gallery remain the public visual presentation."
+        ),
+    )
     hero_image = models.ForeignKey(
         "wagtailimages.Image",
         null=True,
@@ -834,6 +844,7 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("cta_label"),
         FieldPanel("cta_url"),
         FieldPanel("body"),
+        FieldPanel("showcase"),
         FieldPanel("hero_image"),
         FieldPanel("hero_image_alt"),
         FieldPanel("gallery"),
@@ -864,6 +875,7 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("cta_label"),
         APIField("cta_url"),
         APIField("body"),
+        APIField("showcase"),
         APIField(
             "hero_image",
             serializer=ControlledImageRenditionField(
