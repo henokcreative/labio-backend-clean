@@ -104,6 +104,7 @@ class CollaboratorSerializer(serializers.ModelSerializer):
 
 
 class TestimonialSerializer(serializers.ModelSerializer):
+    portrait = serializers.SerializerMethodField()
     related_service = serializers.SerializerMethodField()
     related_case_study = serializers.SerializerMethodField()
 
@@ -113,11 +114,19 @@ class TestimonialSerializer(serializers.ModelSerializer):
             "id",
             "quote",
             "person",
+            "portrait",
             "role",
             "organization",
             "related_service",
             "related_case_study",
         ]
+
+    def get_portrait(self, obj):
+        return get_rendition_data(
+            obj.portrait,
+            "fill-144x144",
+            f"Portrait of {obj.person}",
+        )
 
     @staticmethod
     def public_relation(page):
@@ -141,6 +150,7 @@ class CollaboratorListView(PublicAPIBaseView):
 class TestimonialListView(PublicAPIBaseView):
     def get(self, request):
         testimonials = Testimonial.objects.filter(live=True, active=True).select_related(
+            "portrait",
             "related_service",
             "related_case_study",
         )

@@ -238,6 +238,18 @@ class CaseStudyShowcaseBlock(blocks.StreamBlock):
         label = "Visual showcase"
 
 
+class UpdateShowcaseBlock(blocks.StreamBlock):
+    masonry_gallery = MasonryGalleryBlock()
+    image_grid = ImageGridBlock()
+    image_pair = ImagePairBlock()
+    video = VideoShowcaseBlock()
+    wide_image = WideImageBlock()
+
+    class Meta:
+        icon = "image"
+        label = "Editorial media"
+
+
 class QuoteBlock(blocks.StructBlock):
     quote = blocks.TextBlock(max_length=1000)
     attribution = blocks.CharBlock(required=False, max_length=255)
