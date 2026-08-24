@@ -32,6 +32,7 @@ from .blocks import (
     ProcessStepBlock,
     PublicBodyBlock,
     SocialLinkBlock,
+    UpdateShowcaseBlock,
     ValueBlock,
 )
 
@@ -649,14 +650,20 @@ class ArticlePage(HeadlessPageMixin, PublicSEOMixin, Page):
     featured_image = models.ForeignKey(
         "wagtailimages.Image",
         null=True,
-        blank=False,
+        blank=True,
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    featured_image_alt = models.CharField(max_length=255)
+    featured_image_alt = models.CharField(max_length=255, blank=True)
     publication_date = models.DateField()
     featured = models.BooleanField(default=False)
     body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
+    showcase = StreamField(
+        UpdateShowcaseBlock(),
+        blank=True,
+        use_json_field=True,
+        help_text="Optional ordered images and videos for the article body.",
+    )
 
     content_panels = Page.content_panels + [
         FieldPanel("article_type"),
@@ -666,6 +673,7 @@ class ArticlePage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("publication_date"),
         FieldPanel("featured"),
         FieldPanel("body"),
+        FieldPanel("showcase"),
     ]
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
     search_fields = Page.search_fields + [
@@ -686,6 +694,7 @@ class ArticlePage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("publication_date"),
         APIField("featured"),
         APIField("body"),
+        APIField("showcase"),
     ]
 
 
@@ -697,11 +706,11 @@ class EventPage(HeadlessPageMixin, PublicSEOMixin, Page):
     featured_image = models.ForeignKey(
         "wagtailimages.Image",
         null=True,
-        blank=False,
+        blank=True,
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    featured_image_alt = models.CharField(max_length=255)
+    featured_image_alt = models.CharField(max_length=255, blank=True)
     start_date = models.DateField()
     start_time = models.TimeField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
@@ -710,6 +719,12 @@ class EventPage(HeadlessPageMixin, PublicSEOMixin, Page):
     registration_url = models.URLField(max_length=500, blank=True)
     featured = models.BooleanField(default=False)
     body = StreamField(PublicBodyBlock(), blank=True, use_json_field=True)
+    showcase = StreamField(
+        UpdateShowcaseBlock(),
+        blank=True,
+        use_json_field=True,
+        help_text="Optional ordered images and videos for the event body.",
+    )
 
     def clean(self):
         super().clean()
@@ -740,6 +755,7 @@ class EventPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("registration_url"),
         FieldPanel("featured"),
         FieldPanel("body"),
+        FieldPanel("showcase"),
     ]
     promote_panels = Page.promote_panels + [FieldPanel("social_image")]
     search_fields = Page.search_fields + [
@@ -765,6 +781,7 @@ class EventPage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("registration_url"),
         APIField("featured"),
         APIField("body"),
+        APIField("showcase"),
     ]
 
 

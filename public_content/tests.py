@@ -16,7 +16,7 @@ from wagtail.images import get_image_model
 from wagtail.models import Page, PageViewRestriction, Site
 
 from clients.permissions import PORTAL_STAFF_PERMISSION
-from .blocks import CaseStudyShowcaseBlock
+from .blocks import CaseStudyShowcaseBlock, UpdateShowcaseBlock
 from .models import (
     AboutPage,
     AboutPageTestimonial,
@@ -1841,6 +1841,100 @@ class UpdatesContentAPITests(TestCase):
         self.assertEqual(
             data["meta"]["search_description"],
             "Search description for Newest insight.",
+        )
+
+    def test_updates_allow_text_only_pages_without_featured_media(self):
+        article = ArticlePage(
+            title="Text-only update",
+            slug="text-only-update",
+            article_type=ArticlePage.ArticleType.UPDATE,
+            summary="A complete update without media.",
+            publication_date=timezone.localdate(),
+            body=[("rich_text", "<p>Text-only body.</p>")],
+            live=False,
+        )
+        self.index.add_child(instance=article)
+        article.save_revision().publish()
+
+        data = self.client.get(
+            f"/api/cms/v2/pages/{article.pk}/"
+        ).json()
+
+        self.assertIsNone(data["featured_image"])
+        self.assertEqual(data["showcase"], [])
+
+    def test_update_showcase_reuses_controlled_media_blocks_for_articles_and_events(self):
+        image_value = {
+            "image": self.image,
+            "alt_text": "Update showcase image",
+            "caption": "Editorial media caption",
+        }
+        showcase = [
+            (
+                "masonry_gallery",
+                {"heading": "Gallery", "images": [image_value, image_value]},
+            ),
+            (
+                "image_grid",
+                {"heading": "Grid", "columns": "2", "images": [image_value]},
+            ),
+            (
+                "image_pair",
+                {
+                    "heading": "Pair",
+                    "first_image": image_value,
+                    "second_image": image_value,
+                },
+            ),
+            (
+                "video",
+                {
+                    "heading": "Video",
+                    "url": "https://vimeo.com/123456",
+                    "caption": "Consent-aware video",
+                },
+            ),
+            (
+                "wide_image",
+                {
+                    "heading": "Wide",
+                    "image": self.image,
+                    "alt_text": "Wide update image",
+                    "caption": "Wide image caption",
+                },
+            ),
+        ]
+
+        for page in (self.newest_article, self.later_event):
+            page.showcase = showcase
+            page.save_revision().publish()
+            data = self.client.get(
+                f"/api/cms/v2/pages/{page.pk}/"
+            ).json()
+            self.assertEqual(
+                [block["type"] for block in data["showcase"]],
+                [
+                    "masonry_gallery",
+                    "image_grid",
+                    "image_pair",
+                    "video",
+                    "wide_image",
+                ],
+            )
+            self.assertEqual(
+                data["showcase"][0]["value"]["images"][0]["alt"],
+                "Update showcase image",
+            )
+
+        self.assertEqual(
+            set(UpdateShowcaseBlock().child_blocks),
+            {
+                "masonry_gallery",
+                "image_grid",
+                "image_pair",
+                "video",
+                "wide_image",
+            },
         )
 
     def test_event_detail_serializes_dates_location_and_registration(self):
