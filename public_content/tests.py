@@ -1105,6 +1105,11 @@ class PublicContentSecurityTests(TestCase):
             "alt_text": "A controlled showcase image",
             "caption": "Optional editorial caption",
         }
+        image_without_caption = {
+            "image": self.image,
+            "alt_text": "A showcase image without a caption",
+            "caption": "",
+        }
         showcase = [
             (
                 "photo_slider",
@@ -1125,7 +1130,7 @@ class PublicContentSecurityTests(TestCase):
                 {
                     "heading": "Applications",
                     "columns": "3",
-                    "images": [image_value],
+                    "images": [image_without_caption],
                 },
             ),
             (
@@ -1204,6 +1209,27 @@ class PublicContentSecurityTests(TestCase):
         self.assertEqual(slider_image["alt"], "A controlled showcase image")
         self.assertNotIn("file", slider_image)
         self.assertNotIn("original", slider_image)
+        masonry_image = blocks[1]["value"]["images"][0]
+        grid_image = blocks[2]["value"]["images"][0]
+        pair_images = (
+            blocks[3]["value"]["first_image"],
+            blocks[3]["value"]["second_image"],
+        )
+        preview_image = blocks[5]["value"]["items"][0]["image"]
+        wide_image = blocks[6]["value"]["image"]
+        for image in (
+            slider_image,
+            masonry_image,
+            grid_image,
+            *pair_images,
+            preview_image,
+            wide_image,
+        ):
+            self.assertTrue(image["url"])
+            self.assertGreater(image["width"], 0)
+            self.assertGreater(image["height"], 0)
+            self.assertTrue(image["alt"])
+        self.assertNotIn("caption", grid_image)
         self.assertEqual(blocks[2]["value"]["columns"], "3")
         self.assertEqual(
             blocks[4]["value"]["url"],
