@@ -29,6 +29,7 @@ from .serializers import (
     CustomTokenObtainPairSerializer,
     PasswordBoundTokenRefreshSerializer,
 )
+from .login_throttle import LoginAttemptGuard
 from clients.portal_views import DashboardViewSet, PortalMessageViewSet, ProjectViewSet
 
 router = DefaultRouter()
@@ -38,6 +39,21 @@ router.register("auth/dashboard", DashboardViewSet, basename="dashboard")
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+    throttle_response = {
+        "detail": "Unable to process your login request right now."
+    }
+
+    def post(self, request, *args, **kwargs):
+        guard = LoginAttemptGuard(request)
+        if not guard.allow_attempt():
+            response = Response(self.throttle_response, status=429)
+            response["Retry-After"] = str(guard.retry_after)
+            return response
+
+        response = super().post(request, *args, **kwargs)
+        guard.clear_identifier_failures()
+        return response
 
 
 class PasswordBoundTokenRefreshView(TokenRefreshView):

@@ -32,6 +32,7 @@ class RenderAllowedHostsSettingsTests(SimpleTestCase):
                 "RENDER_EXTERNAL_HOSTNAME": render_hostname,
                 "RESEND_API_KEY": "test-resend-key",
                 "SECRET_KEY": "test-only-secret-key-" * 4,
+                "SECURITY_CACHE_URL": "redis://localhost:6379/0",
                 "SECURE_HSTS_SECONDS": "300",
                 "WAGTAILADMIN_BASE_URL": "https://example.com",
             }
@@ -104,6 +105,7 @@ class CmsMediaStorageSettingsTests(SimpleTestCase):
                 ),
                 "RESEND_API_KEY": "test-resend-key",
                 "SECRET_KEY": "test-only-secret-key-" * 4,
+                "SECURITY_CACHE_URL": "redis://localhost:6379/0",
                 "SECURE_HSTS_SECONDS": "300",
                 "WAGTAILADMIN_BASE_URL": "https://example.com",
             }
