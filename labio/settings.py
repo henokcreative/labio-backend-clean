@@ -84,6 +84,53 @@ REST_FRAMEWORK = {
     )),
 }
 
+SECURITY_THROTTLE_CACHE_ALIAS = "security_throttle"
+security_cache_url = os.environ.get("SECURITY_CACHE_URL", "").strip()
+if IS_PRODUCTION and not security_cache_url:
+    raise ImproperlyConfigured("SECURITY_CACHE_URL must be configured in production.")
+
+if security_cache_url:
+    security_cache = {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": security_cache_url,
+        "KEY_PREFIX": "labio-security",
+        "OPTIONS": {
+            "socket_connect_timeout": 1,
+            "socket_timeout": 1,
+            "retry_on_timeout": False,
+        },
+    }
+else:
+    # Development and tests use an explicit process-local cache. Production
+    # fails above instead of silently weakening authentication throttling.
+    security_cache = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "labio-security-throttle-development",
+        "KEY_PREFIX": "labio-security",
+    }
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "labio-default",
+    },
+    SECURITY_THROTTLE_CACHE_ALIAS: security_cache,
+}
+
+LOGIN_IP_RATE_LIMIT = int(os.environ.get("LOGIN_IP_RATE_LIMIT", "20"))
+LOGIN_IDENTIFIER_RATE_LIMIT = int(
+    os.environ.get("LOGIN_IDENTIFIER_RATE_LIMIT", "8")
+)
+LOGIN_RATE_WINDOW_SECONDS = int(
+    os.environ.get("LOGIN_RATE_WINDOW_SECONDS", "900")
+)
+if min(
+    LOGIN_IP_RATE_LIMIT,
+    LOGIN_IDENTIFIER_RATE_LIMIT,
+    LOGIN_RATE_WINDOW_SECONDS,
+) < 1:
+    raise ImproperlyConfigured("Login rate-limit settings must be positive.")
+
 SECRET_KEY = required_setting("SECRET_KEY")
 if IS_PRODUCTION and len(SECRET_KEY) < 50:
     raise ImproperlyConfigured("SECRET_KEY must be at least 50 characters in production.")
