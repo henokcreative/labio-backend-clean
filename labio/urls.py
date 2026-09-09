@@ -25,7 +25,10 @@ from rest_framework.routers import DefaultRouter
 
 from wagtail.admin import urls as wagtailadmin_urls
 
-from .serializers import CustomTokenObtainPairSerializer
+from .serializers import (
+    CustomTokenObtainPairSerializer,
+    PasswordBoundTokenRefreshSerializer,
+)
 from clients.portal_views import DashboardViewSet, PortalMessageViewSet, ProjectViewSet
 
 router = DefaultRouter()
@@ -35,6 +38,10 @@ router.register("auth/dashboard", DashboardViewSet, basename="dashboard")
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+
+class PasswordBoundTokenRefreshView(TokenRefreshView):
+    serializer_class = PasswordBoundTokenRefreshSerializer
 
 @api_view(['GET'])
 def api_root(request):
@@ -82,7 +89,7 @@ urlpatterns = [
 
     path(
         "api/auth/refresh/",
-        TokenRefreshView.as_view(),
+        PasswordBoundTokenRefreshView.as_view(),
         name="token_refresh"
     ),
 
