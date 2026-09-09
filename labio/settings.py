@@ -274,6 +274,7 @@ AUTH_PASSWORD_VALIDATORS = [
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=4),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'CHECK_REVOKE_TOKEN': True,
 }
 
 INVITATION_FRONTEND_URL = url_setting(
