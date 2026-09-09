@@ -573,6 +573,58 @@ class ProjectFileAccessContractTests(TestCase):
         )
         self.assertEqual(denied.status_code, 403)
 
+    @override_settings(
+        DATA_UPLOAD_MAX_MEMORY_SIZE=32,
+        PROJECT_FILE_PROXY_UPLOAD_MAX_BYTES=64,
+    )
+    @patch("clients.portal_views.create_project_file")
+    def test_allowed_multipart_project_file_is_not_blocked_by_data_memory_limit(
+        self,
+        portal_create,
+    ):
+        provider = FakeProjectFileProvider()
+        portal_create.side_effect = lambda **kwargs: create_project_file(
+            **kwargs,
+            provider=provider,
+        )
+        self.api.force_authenticate(self.staff)
+
+        response = self.api.post(
+            f"/api/projects/{self.project.id}/files/",
+            {
+                "file": uploaded_file(
+                    "allowed.png",
+                    b"\x89PNG\r\n\x1a\n" + b"a" * 24,
+                    "image/png",
+                ),
+                "category": ProjectFile.Category.PREVIEW,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        portal_create.assert_called_once()
+
+    @override_settings(PROJECT_FILE_PROXY_UPLOAD_MAX_BYTES=8)
+    def test_project_file_above_proxy_limit_remains_rejected(self):
+        self.api.force_authenticate(self.staff)
+
+        response = self.api.post(
+            f"/api/projects/{self.project.id}/files/",
+            {
+                "file": uploaded_file(
+                    "too-large.png",
+                    b"\x89PNG\r\n\x1a\nlarge",
+                    "image/png",
+                ),
+                "category": ProjectFile.Category.PREVIEW,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("file", response.data)
+
     @patch("clients.portal_views.private_download_url", return_value="https://signed.example/file")
     def test_supported_preview_and_final_download_remain_authenticated(self, signed_url):
         self.api.force_authenticate(self.user)

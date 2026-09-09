@@ -420,6 +420,12 @@ STORAGES = {
     },
 }
 
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", "2621440")
+)
+if DATA_UPLOAD_MAX_MEMORY_SIZE < 1:
+    raise ImproperlyConfigured("DATA_UPLOAD_MAX_MEMORY_SIZE must be positive.")
+
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10_000
 WAGTAIL_SITE_NAME = 'LaBio Media CMS'
 WAGTAILADMIN_BASE_URL = url_setting(

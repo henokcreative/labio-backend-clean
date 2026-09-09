@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from django.contrib.auth.models import Permission, User
@@ -102,6 +103,46 @@ class ContactMessageApiTests(TestCase):
         self.assertEqual(response.data["email_notification"], "sent")
         saved = ContactMessage.objects.get(email="public@example.com")
         self.assertFalse(saved.is_read)
+        send_email.assert_called_once()
+
+    @override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=1024)
+    @patch("contacts.views.ContactMessageSubmissionSerializer")
+    def test_oversized_json_is_rejected_before_serializer_execution(self, serializer):
+        response = self.api.post(
+            "/api/contacts/submit/",
+            data=json.dumps(
+                {
+                    "name": "A" * 2048,
+                    "email": "public@example.com",
+                    "message": "A legitimate message body.",
+                }
+            ),
+            content_type="application/json",
+            REMOTE_ADDR="198.51.100.20",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        serializer.assert_not_called()
+
+    @override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=4096)
+    @patch("contacts.views.resend.Emails.send")
+    def test_json_below_upload_memory_limit_is_processed_normally(self, send_email):
+        response = self.api.post(
+            "/api/contacts/submit/",
+            {
+                "name": "Public Contact",
+                "email": "below-limit@example.com",
+                "message": "A legitimate message body.",
+                "website": "",
+            },
+            format="json",
+            REMOTE_ADDR="198.51.100.21",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            ContactMessage.objects.filter(email="below-limit@example.com").exists()
+        )
         send_email.assert_called_once()
 
     @patch("contacts.views.resend.Emails.send")
