@@ -298,3 +298,25 @@ class ActivePricingItemsField(Field):
             }
             for item in items
         ]
+
+
+class PublicTeamMembersField(Field):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("read_only", True)
+        super().__init__(**kwargs)
+
+    def to_representation(self, value):
+        # The queryset contains published database rows, never latest draft revisions.
+        return [
+            {
+                "id": member.pk,
+                "name": member.name,
+                "role": member.role,
+                "portrait": get_rendition_data(
+                    member.portrait, "fill-640x800", f"Portrait of {member.name}",
+                ),
+                "biography": member.biography,
+                "professional_url": member.professional_url,
+            }
+            for member in value
+        ]

@@ -1,7 +1,7 @@
 from datetime import time
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxLengthValidator, MaxValueValidator, MinValueValidator, URLValidator
 from django.db import models
 from django.utils import timezone
 from modelcluster.fields import ParentalKey, ParentalManyToManyField
@@ -22,6 +22,7 @@ from .api_fields import (
     OrderedRelatedPagesField,
     OrderedTestimonialsField,
     PublicPageListField,
+    PublicTeamMembersField,
     PublicUpdateListField,
 )
 from .blocks import (
@@ -958,6 +959,17 @@ class AboutPage(HeadlessPageMixin, PublicSEOMixin, Page):
         default="Client perspectives",
     )
 
+    team_enabled = models.BooleanField(default=False)
+    team_heading = models.CharField(max_length=255, default="Our team")
+
+    @property
+    def public_team_members(self):
+        if not self.team_enabled:
+            return TeamMember.objects.none()
+        return TeamMember.objects.filter(
+            live=True, active=True, live_revision__isnull=False,
+        ).select_related("portrait").order_by("display_order", "pk")
+
     @property
     def public_testimonial_relations(self):
         if not self.testimonials_enabled:
@@ -974,6 +986,8 @@ class AboutPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("page_eyebrow"),
         FieldPanel("values_label"),
         FieldPanel("process_label"),
+        FieldPanel("team_enabled"),
+        FieldPanel("team_heading"),
         FieldPanel("testimonials_enabled"),
         FieldPanel("testimonials_heading"),
         InlinePanel(
@@ -999,6 +1013,9 @@ class AboutPage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("page_eyebrow"),
         APIField("values_label"),
         APIField("process_label"),
+        APIField("team_enabled"),
+        APIField("team_heading"),
+        APIField("team_members", serializer=PublicTeamMembersField(source="public_team_members")),
         APIField("testimonials_enabled"),
         APIField("testimonials_heading"),
         APIField(
@@ -1371,6 +1388,35 @@ class Testimonial(DraftStateMixin, RevisionMixin, models.Model):
 
     def __str__(self):
         return f"{self.person} — {self.organization}".strip(" —")
+
+
+@register_snippet
+class TeamMember(DraftStateMixin, RevisionMixin, models.Model):
+    name = models.CharField(max_length=255)
+    role = models.CharField(max_length=255)
+    portrait = models.ForeignKey(
+        "wagtailimages.Image", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+    )
+    biography = models.TextField(max_length=1000, blank=True, validators=[MaxLengthValidator(1000)])
+    professional_url = models.URLField(
+        max_length=500, blank=True,
+        validators=[URLValidator(schemes=["http", "https"])],
+    )
+    active = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+
+    panels = [
+        FieldPanel("name"), FieldPanel("role"), FieldPanel("portrait"),
+        FieldPanel("biography"), FieldPanel("professional_url"),
+        FieldPanel("active"), FieldPanel("display_order"), PublishingPanel(),
+    ]
+
+    class Meta:
+        ordering = ["display_order", "pk"]
+
+    def __str__(self):
+        return self.name
 
 
 @register_setting
