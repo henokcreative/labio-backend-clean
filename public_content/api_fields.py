@@ -140,6 +140,21 @@ class OrderedRelatedPagesField(Field):
         ]
 
 
+class HomeSelectedWorkField(OrderedRelatedPagesField):
+    def to_representation(self, value):
+        relations = list(value.all())
+        pages = [relation.case_study for relation in relations]
+        public_ids = {page.pk for page in only_public_pages(pages)}
+        return [
+            {
+                **public_page_summary(relation.case_study),
+                "summary_override": relation.summary_override,
+            }
+            for relation in relations
+            if relation.case_study_id in public_ids
+        ]
+
+
 class OrderedRelatedCaseStudiesField(Field):
     def __init__(self, **kwargs):
         kwargs.setdefault("read_only", True)

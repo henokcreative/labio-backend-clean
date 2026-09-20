@@ -1285,6 +1285,27 @@ class PublicContentSecurityTests(TestCase):
                 }
             )
 
+    def test_home_selected_work_summary_override_preserves_case_study_summary(self):
+        original = self.case_study.summary
+        relations = self.home.selected_case_studies.filter(case_study=self.case_study)
+        relations.update(summary_override="Homepage-only teaser")
+        self.home.refresh_from_db()
+        self.home.save_revision().publish()
+        data = self.client.get(f"/api/cms/v2/pages/{self.home.pk}/").json()
+        selected = next(item for item in data["selected_work"] if item["id"] == self.case_study.pk)
+        self.assertEqual(selected["summary_override"], "Homepage-only teaser")
+        self.assertEqual(selected["summary"], original)
+        detail = self.client.get(f"/api/cms/v2/pages/{self.case_study.pk}/").json()
+        self.assertEqual(detail["summary"], original)
+        self.assertNotIn("summary_override", detail)
+        relations.update(summary_override="")
+        self.home.refresh_from_db()
+        self.home.save_revision().publish()
+        data = self.client.get(f"/api/cms/v2/pages/{self.home.pk}/").json()
+        selected = next(item for item in data["selected_work"] if item["id"] == self.case_study.pk)
+        self.assertEqual(selected["summary_override"], "")
+        self.assertEqual(selected["summary"], original)
+
     def test_about_testimonial_selection_can_be_empty_or_disabled(self):
         AboutPageTestimonial.objects.filter(page=self.about).delete()
         response = self.client.get(f"/api/cms/v2/pages/{self.about.pk}/")

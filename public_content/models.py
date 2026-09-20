@@ -20,6 +20,7 @@ from .api_fields import (
     OrderedCollaboratorsField,
     OrderedRelatedCaseStudiesField,
     OrderedRelatedPagesField,
+    HomeSelectedWorkField,
     OrderedTestimonialsField,
     PublicPageListField,
     PublicTeamMembersField,
@@ -327,7 +328,7 @@ class HomePage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("selected_work_cta_url"),
         APIField(
             "selected_work",
-            serializer=OrderedRelatedPagesField(
+            serializer=HomeSelectedWorkField(
                 page_attribute="case_study",
                 source="selected_case_studies",
             ),
@@ -1224,7 +1225,14 @@ class HomePageFeaturedCaseStudy(Orderable):
         related_name="+",
     )
 
-    panels = [FieldPanel("case_study")]
+    summary_override = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Optional homepage teaser. Leave blank to use the case study summary.",
+    )
+
+    panels = [FieldPanel("case_study"), FieldPanel("summary_override")]
 
 
 class HomePageFeaturedService(Orderable):
