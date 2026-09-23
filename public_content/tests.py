@@ -1121,9 +1121,12 @@ class PublicContentSecurityTests(TestCase):
     def test_case_study_narrative_migration_preserves_live_and_revision_content(self):
         import json
         migration = import_module("public_content.migrations.0019_case_study_narrative")
+        repair = import_module("public_content.migrations.0020_repair_narrative_line_breaks")
+        from .blocks import NarrativeRichTextBlock
+        self.case_study.challenge += "\nAnother live line"
         self.case_study.narrative = []
         self.case_study.save()
-        self.case_study.challenge = "Draft <script>text</script>\n\nSecond paragraph"
+        self.case_study.challenge = "Draft <script>text</script>\nSecond line\n\nSecond paragraph"
         draft = self.case_study.save_revision()
         for revision in self.case_study.revisions.all():
             content = revision.content
@@ -1135,21 +1138,72 @@ class PublicContentSecurityTests(TestCase):
             ("public_content", "0019_case_study_narrative"),
         ]).apps
         migration.migrate_narratives(historical_apps, SimpleNamespace(connection=connection))
+        repair.repair_narratives(historical_apps, SimpleNamespace(connection=connection))
         self.case_study.refresh_from_db()
         live_html = self.case_study.narrative[0].value.source
         self.assertIn("Explain a complex research programme clearly.", live_html)
         self.assertNotIn("Draft", live_html)
+        self.assertIn("<br/>Another live line", live_html)
         self.assertIn("<li>Editorial film</li>", live_html)
         self.assertEqual(self.case_study.hero_image_id, self.image.pk)
         draft.refresh_from_db()
         draft_html = json.loads(draft.content["narrative"])[0]["value"]
         self.assertIn("Draft &lt;script&gt;text&lt;/script&gt;", draft_html)
         self.assertIn("<p>Second paragraph</p>", draft_html)
-        self.assertEqual(draft.content["challenge"], "Draft <script>text</script>\n\nSecond paragraph")
+        self.assertEqual(draft.content["challenge"], "Draft <script>text</script>\nSecond line\n\nSecond paragraph")
         self.assertEqual(draft.as_object().narrative[0].value.source, draft_html)
+        block = NarrativeRichTextBlock()
+        block.get_form_state(block.to_python(live_html))
+        for revision in self.case_study.revisions.all():
+            for item in revision.as_object().narrative:
+                block.get_form_state(item.value)
         migration.migrate_narratives(django_apps, SimpleNamespace(connection=connection))
         draft.refresh_from_db()
         self.assertEqual(json.loads(draft.content["narrative"])[0]["value"], draft_html)
+
+    def test_narrative_repair_preserves_independent_snapshots_and_editor_changes(self):
+        import json
+        from copy import deepcopy
+        from .blocks import NarrativeRichTextBlock
+        repair = import_module("public_content.migrations.0020_repair_narrative_line_breaks")
+        live_blocks = [{"type": "rich_text", "id": "live-id", "value": "<p>Edited live text<br>Line two</p>"}]
+        CaseStudyPage.objects.filter(pk=self.case_study.pk).update(narrative=live_blocks)
+        self.case_study.refresh_from_db()
+        self.case_study.narrative = [("rich_text", "<p>Different draft<br>Draft line two</p>")]
+        draft = self.case_study.save_revision()
+        # Exercise both JSON-string and JSON-list revision representations.
+        content = draft.content
+        content["narrative"] = json.loads(content["narrative"])
+        draft.content = content
+        draft.save(update_fields=["content"])
+        before_revisions = {rev.pk: deepcopy(rev.content) for rev in self.case_study.revisions.all()}
+        self.case_study.refresh_from_db()
+        before_page = CaseStudyPage.objects.filter(pk=self.case_study.pk).values().get()
+        repair.repair_narratives(django_apps, SimpleNamespace(connection=connection))
+        after_page = CaseStudyPage.objects.filter(pk=self.case_study.pk).values().get()
+        before_page.pop("narrative")
+        after_page.pop("narrative")
+        self.assertEqual(before_page, after_page)
+        self.case_study.refresh_from_db()
+        self.assertEqual(self.case_study.narrative[0].value.source, "<p>Edited live text<br/>Line two</p>")
+        self.assertEqual(self.case_study.narrative[0].id, "live-id")
+        for rev in self.case_study.revisions.all():
+            before = before_revisions[rev.pk]
+            after = deepcopy(rev.content)
+            old_narrative = before.pop("narrative")
+            new_narrative = after.pop("narrative")
+            self.assertEqual(before, after)
+            self.assertEqual(type(old_narrative), type(new_narrative))
+            old_blocks = json.loads(old_narrative) if isinstance(old_narrative, str) else old_narrative
+            new_blocks = json.loads(new_narrative) if isinstance(new_narrative, str) else new_narrative
+            self.assertEqual(new_blocks, repair.repair_narrative(old_blocks)[0])
+            for item in rev.as_object().narrative:
+                NarrativeRichTextBlock().get_form_state(item.value)
+        draft.refresh_from_db()
+        self.assertIn("Different draft<br/>Draft line two", draft.content["narrative"][0]["value"])
+        snapshots = {rev.pk: rev.content for rev in self.case_study.revisions.all()}
+        repair.repair_narratives(django_apps, SimpleNamespace(connection=connection))
+        self.assertEqual(snapshots, {rev.pk: rev.content for rev in self.case_study.revisions.all()})
 
     def test_case_study_showcase_serializes_controlled_ordered_modules(self):
         image_value = {
