@@ -31,6 +31,7 @@ from .blocks import (
     CaseStudyShowcaseBlock,
     GalleryImageBlock,
     NavigationLinkBlock,
+    NarrativeRichTextBlock,
     ProcessStepBlock,
     PublicBodyBlock,
     SocialLinkBlock,
@@ -799,6 +800,7 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         blank=True,
         help_text='Editorial year or range, such as "2025" or "2024–2025".',
     )
+    # Legacy storage retained for recovery; no longer editable or public.
     challenge = models.TextField(max_length=4000, blank=True)
     approach = models.TextField(max_length=4000, blank=True)
     outcome = models.TextField(max_length=4000, blank=True)
@@ -815,6 +817,12 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         blank=True,
         use_json_field=True,
     )
+    narrative = StreamField(
+        [("rich_text", NarrativeRichTextBlock())],
+        blank=True,
+        use_json_field=True,
+        help_text="Project story: use headings, paragraphs and nested lists. Add visuals in Showcase.",
+    )
     project_url = models.URLField(max_length=500, blank=True)
     cta_label = models.CharField(max_length=100, blank=True)
     cta_url = models.URLField(max_length=500, blank=True)
@@ -824,18 +832,17 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         blank=True,
         use_json_field=True,
         help_text=(
-            "Optional ordered visual modules. When empty, the legacy embed "
-            "and gallery remain the public visual presentation."
+            "Optional ordered visual modules, displayed after the narrative."
         ),
     )
     hero_image = models.ForeignKey(
         "wagtailimages.Image",
         null=True,
-        blank=False,
+        blank=True,
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    hero_image_alt = models.CharField(max_length=255)
+    hero_image_alt = models.CharField(max_length=255, blank=True)
     gallery = StreamField(
         [("image", GalleryImageBlock())],
         blank=True,
@@ -855,19 +862,11 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("category"),
         FieldPanel("summary"),
         FieldPanel("project_year"),
-        FieldPanel("challenge"),
-        FieldPanel("approach"),
-        FieldPanel("deliverables"),
-        FieldPanel("outcome"),
+        FieldPanel("narrative"),
         FieldPanel("project_url"),
         FieldPanel("cta_label"),
         FieldPanel("cta_url"),
-        FieldPanel("body"),
         FieldPanel("showcase"),
-        FieldPanel("hero_image"),
-        FieldPanel("hero_image_alt"),
-        FieldPanel("gallery"),
-        FieldPanel("embed_url"),
         FieldPanel("services"),
         FieldPanel("publication_date"),
         FieldPanel("featured"),
@@ -876,35 +875,18 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
     search_fields = Page.search_fields + [
         index.SearchField("client_display_name"),
         index.SearchField("summary"),
-        index.SearchField("challenge"),
-        index.SearchField("approach"),
-        index.SearchField("outcome"),
-        index.SearchField("body"),
+        index.SearchField("narrative"),
     ]
     api_fields = PublicSEOMixin.seo_api_fields + [
         APIField("client_display_name"),
         APIField("category"),
         APIField("summary"),
         APIField("project_year"),
-        APIField("challenge"),
-        APIField("approach"),
-        APIField("deliverables"),
-        APIField("outcome"),
+        APIField("narrative"),
         APIField("project_url"),
         APIField("cta_label"),
         APIField("cta_url"),
-        APIField("body"),
         APIField("showcase"),
-        APIField(
-            "hero_image",
-            serializer=ControlledImageRenditionField(
-                "hero_image",
-                "hero_image_alt",
-                "fill-1920x1080",
-            ),
-        ),
-        APIField("gallery"),
-        APIField("embed_url"),
         APIField("services", serializer=PublicPageListField()),
         APIField("publication_date"),
         APIField("featured"),

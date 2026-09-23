@@ -5,6 +5,7 @@ from wagtail import blocks
 from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images.blocks import ImageChooserBlock
 from wagtail.rich_text import expand_db_html
+from wagtail.whitelist import Whitelister, allow_without_attributes, attribute_rule, check_url
 
 from .api_fields import get_rendition_data
 
@@ -19,6 +20,23 @@ class PublicRichTextBlock(blocks.RichTextBlock):
 
     def get_api_representation(self, value, context=None):
         return expand_db_html(value.source)
+
+
+class NarrativeWhitelister(Whitelister):
+    element_rules = {
+        name: allow_without_attributes
+        for name in ("[document]", "p", "h2", "h3", "ul", "ol", "li", "strong", "em", "br")
+    }
+    element_rules["a"] = attribute_rule({"href": check_url})
+
+
+class NarrativeRichTextBlock(PublicRichTextBlock):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("features", ["h2", "h3", *RICH_TEXT_FEATURES])
+        super().__init__(**kwargs)
+
+    def get_api_representation(self, value, context=None):
+        return NarrativeWhitelister().clean(super().get_api_representation(value, context))
 
 
 class HeadingBlock(blocks.StructBlock):

@@ -16,7 +16,7 @@ from wagtail.images import get_image_model
 from wagtail.models import Page, PageViewRestriction, Site
 
 from clients.permissions import PORTAL_STAFF_PERMISSION
-from .blocks import CaseStudyShowcaseBlock, UpdateShowcaseBlock
+from .blocks import CaseStudyShowcaseBlock, NarrativeWhitelister, UpdateShowcaseBlock
 from .models import (
     AboutPage,
     AboutPageTestimonial,
@@ -135,6 +135,7 @@ class PublicContentSecurityTests(TestCase):
             category="Film",
             summary="Public case study summary.",
             project_year="2025",
+            narrative=[("rich_text", "<h3>Challenge</h3><p>Explain a complex research programme clearly.</p>")],
             challenge="Explain a complex research programme clearly.",
             approach="Build the story around the researchers and their work.",
             deliverables=[
@@ -862,22 +863,9 @@ class PublicContentSecurityTests(TestCase):
         case_study_data = responses[self.case_study.pk]
         self.assertEqual(case_study_data["client_display_name"], "Editorial Client Name")
         self.assertEqual(case_study_data["project_year"], "2025")
-        self.assertEqual(
-            case_study_data["challenge"],
-            "Explain a complex research programme clearly.",
-        )
-        self.assertEqual(
-            case_study_data["approach"],
-            "Build the story around the researchers and their work.",
-        )
-        self.assertEqual(
-            [item["value"] for item in case_study_data["deliverables"]],
-            ["Editorial film", "Social cutdowns"],
-        )
-        self.assertEqual(
-            case_study_data["outcome"],
-            "A focused story ready for public release.",
-        )
+        self.assertIn("Explain a complex research programme clearly.", case_study_data["narrative"][0]["value"])
+        for field in ("challenge", "approach", "deliverables", "outcome", "hero_image", "body", "gallery", "embed_url"):
+            self.assertNotIn(field, case_study_data)
         self.assertEqual(
             case_study_data["project_url"],
             "https://project.example.com",
@@ -1071,14 +1059,23 @@ class PublicContentSecurityTests(TestCase):
         )
 
     def test_case_study_editorial_fields_are_optional(self):
+        form_fields = CaseStudyPage.get_edit_handler().get_form_class().base_fields
+        self.assertIn("narrative", form_fields)
+        for field in ("challenge", "approach", "deliverables", "outcome", "hero_image", "hero_image_alt", "body", "gallery", "embed_url"):
+            self.assertNotIn(field, form_fields)
+        from wagtail.admin.rich_text.converters.contentstate import ContentstateConverter
+        converter = ContentstateConverter(features=["h2", "h3", "bold", "italic", "link", "ol", "ul"])
+        nested = "<h2>Delivered</h2><ul><li>Brand<ul><li>Logo</li></ul></li></ul>"
+        self.assertEqual(
+            NarrativeWhitelister().clean(converter.to_database_format(converter.from_database_format(nested))),
+            nested,
+        )
         minimal = CaseStudyPage(
             title="Minimal public project",
             slug="minimal-public-project",
             client_display_name="",
             category="Editorial",
             summary="",
-            hero_image=self.image,
-            hero_image_alt="Minimal public project",
         )
         self.portfolio_index.add_child(instance=minimal)
         minimal.save_revision().publish()
@@ -1090,14 +1087,69 @@ class PublicContentSecurityTests(TestCase):
         self.assertEqual(data["client_display_name"], "")
         self.assertEqual(data["summary"], "")
         self.assertEqual(data["project_year"], "")
-        self.assertEqual(data["challenge"], "")
-        self.assertEqual(data["approach"], "")
-        self.assertEqual(data["deliverables"], [])
-        self.assertEqual(data["outcome"], "")
+        self.assertEqual(data["narrative"], [])
+        self.assertNotIn("hero_image", data)
         self.assertEqual(data["project_url"], "")
         self.assertEqual(data["cta_label"], "")
         self.assertEqual(data["cta_url"], "")
         self.assertEqual(data["showcase"], [])
+
+
+    def test_case_study_narrative_html_is_allowlisted_and_drafts_stay_private(self):
+        html = ('<h2>Story</h2><p onclick="alert(1)"><strong>Bold</strong> <em>Emphasis</em> '
+                '<a href="https://example.com" onmouseover="alert(1)">Link</a></p>'
+                '<ul><li>Brand<ul><li>Logo</li></ul></li></ul><ol><li>First</li></ol>'
+                '<script>alert(1)</script><iframe src="https://example.com"></iframe>'
+                '<a href="jav&#x61;script:alert(1)">Unsafe</a><img src=x onerror=alert(1)>')
+        self.case_study.narrative = [("rich_text", html)]
+        self.case_study.save_revision().publish()
+        data = self.client.get(f"/api/cms/v2/pages/{self.case_study.pk}/").json()
+        public_html = data["narrative"][0]["value"]
+        for safe in ('<h2>Story</h2>', '<strong>Bold</strong>', '<em>Emphasis</em>',
+                     '<ul><li>Brand<ul><li>Logo</li></ul></li></ul>', '<ol><li>First</li></ol>',
+                     'href="https://example.com"'):
+            self.assertIn(safe, public_html)
+        for unsafe in ("<script", "<iframe", "<img", "onclick", "onmouseover", "javascript:"):
+            self.assertNotIn(unsafe, public_html)
+        self.case_study.narrative = [("rich_text", "<p>Unpublished narrative</p>")]
+        self.case_study.save_revision()
+        self.assertEqual(
+            self.client.get(f"/api/cms/v2/pages/{self.case_study.pk}/").json()["narrative"],
+            data["narrative"],
+        )
+
+    def test_case_study_narrative_migration_preserves_live_and_revision_content(self):
+        import json
+        migration = import_module("public_content.migrations.0019_case_study_narrative")
+        self.case_study.narrative = []
+        self.case_study.save()
+        self.case_study.challenge = "Draft <script>text</script>\n\nSecond paragraph"
+        draft = self.case_study.save_revision()
+        for revision in self.case_study.revisions.all():
+            content = revision.content
+            content.pop("narrative", None)
+            revision.content = content
+            revision.save(update_fields=["content"])
+        from django.db.migrations.executor import MigrationExecutor
+        historical_apps = MigrationExecutor(connection).loader.project_state([
+            ("public_content", "0019_case_study_narrative"),
+        ]).apps
+        migration.migrate_narratives(historical_apps, SimpleNamespace(connection=connection))
+        self.case_study.refresh_from_db()
+        live_html = self.case_study.narrative[0].value.source
+        self.assertIn("Explain a complex research programme clearly.", live_html)
+        self.assertNotIn("Draft", live_html)
+        self.assertIn("<li>Editorial film</li>", live_html)
+        self.assertEqual(self.case_study.hero_image_id, self.image.pk)
+        draft.refresh_from_db()
+        draft_html = json.loads(draft.content["narrative"])[0]["value"]
+        self.assertIn("Draft &lt;script&gt;text&lt;/script&gt;", draft_html)
+        self.assertIn("<p>Second paragraph</p>", draft_html)
+        self.assertEqual(draft.content["challenge"], "Draft <script>text</script>\n\nSecond paragraph")
+        self.assertEqual(draft.as_object().narrative[0].value.source, draft_html)
+        migration.migrate_narratives(django_apps, SimpleNamespace(connection=connection))
+        draft.refresh_from_db()
+        self.assertEqual(json.loads(draft.content["narrative"])[0]["value"], draft_html)
 
     def test_case_study_showcase_serializes_controlled_ordered_modules(self):
         image_value = {
