@@ -327,6 +327,7 @@ class PublicTeamMembersField(Field):
                 "id": member.pk,
                 "name": member.name,
                 "role": member.role,
+                "email": member.email,
                 "portrait": get_rendition_data(
                     member.portrait, "fill-640x800", f"Portrait of {member.name}",
                 ),

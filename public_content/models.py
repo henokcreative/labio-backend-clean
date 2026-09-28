@@ -1384,6 +1384,7 @@ class Testimonial(DraftStateMixin, RevisionMixin, models.Model):
 class TeamMember(DraftStateMixin, RevisionMixin, models.Model):
     name = models.CharField(max_length=255)
     role = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
     portrait = models.ForeignKey(
         "wagtailimages.Image", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="+",
@@ -1397,7 +1398,7 @@ class TeamMember(DraftStateMixin, RevisionMixin, models.Model):
     display_order = models.PositiveIntegerField(default=0)
 
     panels = [
-        FieldPanel("name"), FieldPanel("role"), FieldPanel("portrait"),
+        FieldPanel("name"), FieldPanel("role"), FieldPanel("email"), FieldPanel("portrait"),
         FieldPanel("biography"), FieldPanel("professional_url"),
         FieldPanel("active"), FieldPanel("display_order"), PublishingPanel(),
     ]

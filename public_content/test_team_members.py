@@ -62,7 +62,7 @@ class TeamMemberTests(TestCase):
 
     def test_filtering_order_and_public_allowlist(self):
         later = self.member(display_order=5)
-        first = self.member(display_order=0)
+        first = self.member(display_order=0, email="editor@example.com")
         tied = self.member(display_order=0)
         self.member(active=False)
         TeamMember.objects.create(name="Never published", role="Producer")
@@ -70,8 +70,10 @@ class TeamMemberTests(TestCase):
         draft.save_revision()
         items = self.payload()["team_members"]
         self.assertEqual([item["id"] for item in items], [first.pk, tied.pk, later.pk])
-        self.assertEqual(set(items[0]), {"id", "name", "role", "portrait", "biography", "professional_url"})
+        self.assertEqual(set(items[0]), {"id", "name", "role", "portrait", "biography", "professional_url", "email"})
         self.assertIsNone(items[0]["portrait"])
+        self.assertEqual(items[0]["email"], "editor@example.com")
+        self.assertEqual(items[1]["email"], "")
 
     def test_disabled_and_empty_sections(self):
         self.assertEqual(self.payload()["team_members"], [])
