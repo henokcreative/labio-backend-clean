@@ -24,6 +24,7 @@ from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 
 from wagtail.admin import urls as wagtailadmin_urls
+from wagtail.documents import urls as wagtaildocs_urls
 
 from .serializers import (
     CustomTokenObtainPairSerializer,
@@ -92,6 +93,7 @@ urlpatterns = [
 
     path("admin/", admin.site.urls),
     path("cms/", include(wagtailadmin_urls)),
+    path("documents/", include(wagtaildocs_urls)),
     path("api/cms/v2/", include("public_content.urls")),
     path("api/contacts/", include("contacts.urls")),
     path("api/messaging/", include("messaging.urls")),

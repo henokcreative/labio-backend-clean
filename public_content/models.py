@@ -1410,6 +1410,42 @@ class TeamMember(DraftStateMixin, RevisionMixin, models.Model):
         return self.name
 
 
+@register_snippet
+class Publication(DraftStateMixin, RevisionMixin, models.Model):
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, unique=True)
+    short_description = models.TextField(blank=True, max_length=1000, validators=[MaxLengthValidator(1000)])
+    publication_year = models.PositiveIntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(9999)],
+    )
+    cover_image = models.ForeignKey(
+        "wagtailimages.Image", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+    )
+    pdf_file = models.ForeignKey(
+        "wagtaildocs.Document", on_delete=models.PROTECT, related_name="+",
+    )
+    is_public = models.BooleanField(default=False)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    panels = [
+        FieldPanel("title"), FieldPanel("slug"), FieldPanel("short_description"),
+        FieldPanel("publication_year"), FieldPanel("cover_image"), FieldPanel("pdf_file"),
+        FieldPanel("is_public"), FieldPanel("sort_order"), PublishingPanel(),
+    ]
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+
+    def clean(self):
+        super().clean()
+        if self.pdf_file_id and not self.pdf_file.file.name.lower().endswith(".pdf"):
+            raise ValidationError({"pdf_file": "Choose a PDF document."})
+
+    def __str__(self):
+        return self.title
+
+
 @register_setting
 class SiteSettings(BaseSiteSetting):
     legal_business_name = models.CharField(max_length=255, blank=True)

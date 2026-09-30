@@ -18,6 +18,7 @@ from .models import (
     HomePage,
     PortfolioIndexPage,
     PricingPage,
+    Publication,
     ServiceIndexPage,
     ServicePage,
     SiteSettings,
@@ -139,6 +140,26 @@ class TestimonialSerializer(serializers.ModelSerializer):
 
     def get_related_case_study(self, obj):
         return self.public_relation(obj.related_case_study)
+
+
+class PublicationSerializer(serializers.ModelSerializer):
+    cover_image = serializers.SerializerMethodField()
+    pdf_url = serializers.CharField(source="pdf_file.url", read_only=True)
+
+    class Meta:
+        model = Publication
+        fields = ["id", "title", "slug", "short_description", "publication_year", "cover_image", "pdf_url"]
+
+    def get_cover_image(self, obj):
+        return get_rendition_data(obj.cover_image, "max-800x1000", obj.title)
+
+
+class PublicationListView(PublicAPIBaseView):
+    def get(self, request):
+        publications = Publication.objects.filter(
+            live=True, is_public=True, live_revision__isnull=False,
+        ).select_related("cover_image", "pdf_file")
+        return Response(PublicationSerializer(publications, many=True).data)
 
 
 class CollaboratorListView(PublicAPIBaseView):

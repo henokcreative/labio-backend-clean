@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from .api import (
     CollaboratorListView,
+    PublicationListView,
     SiteSettingsView,
     TestimonialListView,
     api_router,
@@ -27,6 +28,7 @@ def cms_api_root(request):
             "pages": "/api/cms/v2/pages/",
             "collaborators": "/api/cms/v2/collaborators/",
             "testimonials": "/api/cms/v2/testimonials/",
+            "publications": "/api/cms/v2/publications/",
             "settings": "/api/cms/v2/settings/",
         }
     )
@@ -36,6 +38,7 @@ urlpatterns = [
     path("", cms_api_root, name="cms-api-root"),
     path("collaborators/", CollaboratorListView.as_view(), name="cms-collaborators"),
     path("testimonials/", TestimonialListView.as_view(), name="cms-testimonials"),
+    path("publications/", PublicationListView.as_view(), name="cms-publications"),
     path("settings/", SiteSettingsView.as_view(), name="cms-settings"),
     path("", api_router.urls),
 ]
