@@ -4,6 +4,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from wagtail.documents import get_document_model
 
+from .blocks import PrintDesignBlock
 from .models import Publication
 from .tests import TEST_STORAGES
 
@@ -55,3 +56,26 @@ class PublicationTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             Publication(title="Report", slug="report", pdf_file=other).full_clean()
+
+    def test_print_design_reference_and_published_serialization(self):
+        publication = self.publication("print", is_public=True)
+        block = PrintDesignBlock()
+        value = block.to_python({"publication": publication.pk})
+        self.assertEqual(block.get_prep_value(value), {"publication": publication.pk})
+        expected = self.client.get(reverse("cms-publications")).json()[0]
+        self.assertEqual(block.get_api_representation(value), {"publication": expected})
+        publication.title = "Draft title"
+        publication.is_public = False
+        revision = publication.save_revision()
+        self.assertEqual(block.get_api_representation({"publication": publication}), {"publication": expected})
+        revision.publish()
+        self.assertEqual(block.get_api_representation(value), {"publication": None})
+
+    def test_print_design_unpublished_and_deleted_are_safe(self):
+        publication = Publication.objects.create(title="Draft", slug="draft", pdf_file=self.document, is_public=True)
+        block = PrintDesignBlock()
+        value = block.to_python({"publication": publication.pk})
+        self.assertEqual(block.get_api_representation(value), {"publication": None})
+        pk = publication.pk
+        publication.delete()
+        self.assertEqual(block.get_api_representation(block.to_python({"publication": pk})), {"publication": None})

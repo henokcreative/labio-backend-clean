@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from wagtail import blocks
 from wagtail.embeds.blocks import EmbedBlock
 from wagtail.images.blocks import ImageChooserBlock
+from wagtail.snippets.blocks import SnippetChooserBlock
 from wagtail.rich_text import expand_db_html
 from wagtail.whitelist import Whitelister, allow_without_attributes, attribute_rule, check_url
 
@@ -242,7 +243,28 @@ class WideImageBlock(blocks.StructBlock):
         label = "Wide image"
 
 
+class PrintDesignBlock(blocks.StructBlock):
+    publication = SnippetChooserBlock("public_content.Publication", required=True)
+
+    def get_api_representation(self, value, context=None):
+        # Resolve current published data, never serialize an editor's draft object.
+        from .api import PublicationSerializer
+        from .models import Publication
+
+        selected = value.get("publication")
+        publication = Publication.objects.filter(
+            pk=getattr(selected, "pk", None), live=True, is_public=True,
+            live_revision__isnull=False,
+        ).select_related("cover_image", "pdf_file").first()
+        return {"publication": PublicationSerializer(publication).data if publication else None}
+
+    class Meta:
+        icon = "doc-full"
+        label = "Print Design"
+
+
 class CaseStudyShowcaseBlock(blocks.StreamBlock):
+    print_design = PrintDesignBlock()
     photo_slider = PhotoSliderBlock()
     masonry_gallery = MasonryGalleryBlock()
     image_grid = ImageGridBlock()
