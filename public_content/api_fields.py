@@ -1,5 +1,6 @@
+from django.conf import settings
 from rest_framework.fields import Field
-from wagtail.images.models import SourceImageIOError
+from wagtail.images.models import Filter, SourceImageIOError
 from wagtail.models import Page
 
 
@@ -7,7 +8,21 @@ def get_rendition_data(image, filter_spec, alt_text=""):
     if image is None:
         return None
     try:
-        rendition = image.get_rendition(filter_spec)
+        oversized = (
+            image.width * image.height > settings.WAGTAILIMAGES_MAX_IMAGE_PIXELS
+            or (image.file_size or 0) > settings.WAGTAILIMAGES_MAX_UPLOAD_SIZE
+        )
+        if oversized:
+            # Legacy uploads can exceed today's limits. Never decode them in an
+            # API request, but keep serving renditions that already exist.
+            try:
+                rendition = image.find_existing_rendition(
+                    image.clean_filter_for_svg(Filter(spec=filter_spec))
+                )
+            except image.get_rendition_model().DoesNotExist:
+                return None
+        else:
+            rendition = image.get_rendition(filter_spec)
     except SourceImageIOError:
         return None
     return {

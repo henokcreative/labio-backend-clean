@@ -501,3 +501,8 @@ LOGGING = {
         },
     },
 }
+
+# Bound decoded CMS image memory, including all animation frames. Wagtail's
+# image upload field surfaces these limits as admin validation errors.
+WAGTAILIMAGES_MAX_IMAGE_PIXELS = 16_000_000
+WAGTAILIMAGES_MAX_UPLOAD_SIZE = 10 * 1024 * 1024
