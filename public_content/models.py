@@ -14,6 +14,8 @@ from wagtail.models import DraftStateMixin, Orderable, Page, RevisionMixin
 from wagtail.search import index
 from wagtail.snippets.models import register_snippet
 
+from .widgets import IncludedFeaturesTextarea
+
 from .api_fields import (
     ActivePricingItemsField,
     ControlledImageRenditionField,
@@ -1181,7 +1183,7 @@ class PricingItem(Orderable):
         FieldPanel("price_label"),
         FieldPanel("description"),
         FieldPanel("ideal_for"),
-        FieldPanel("features"),
+        FieldPanel("features", widget=IncludedFeaturesTextarea(), heading="Included", help_text="Enter one included item per line. Blank lines are ignored."),
         FieldPanel("context"),
         FieldPanel("cta_label"),
         FieldPanel("cta_url"),
