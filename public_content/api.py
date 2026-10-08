@@ -88,6 +88,7 @@ class PublicAPIBaseView(APIView):
 
 class CollaboratorSerializer(serializers.ModelSerializer):
     logo = serializers.SerializerMethodField()
+    dark_logo = serializers.SerializerMethodField()
 
     class Meta:
         model = Collaborator
@@ -95,10 +96,14 @@ class CollaboratorSerializer(serializers.ModelSerializer):
             "id",
             "organization_name",
             "logo",
+            "dark_logo",
             "url",
             "display_order",
             "visual_variant",
         ]
+
+    def get_dark_logo(self, obj):
+        return get_rendition_data(obj.dark_logo, "max-600x300", obj.logo_alt)
 
     def get_logo(self, obj):
         return get_rendition_data(obj.logo, "max-600x300", obj.logo_alt)

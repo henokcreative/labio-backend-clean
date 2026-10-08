@@ -539,6 +539,42 @@ class PublicContentSecurityTests(TestCase):
             404,
         )
 
+    def test_portfolio_thumbnail_detail_list_and_related_serialization(self):
+        from .api_fields import public_page_summary
+        detail_url = f"/api/cms/v2/pages/{self.case_study.pk}/?fields=*"
+        self.assertIsNone(self.client.get(detail_url).json()["portfolio_thumbnail"])
+        self.assertIsNone(public_page_summary(self.case_study)["portfolio_thumbnail"])
+        self.case_study.portfolio_thumbnail = self.image
+        revision = self.case_study.save_revision()
+        self.assertIsNone(self.client.get(detail_url).json()["portfolio_thumbnail"])
+        revision.publish()
+        data = self.client.get(detail_url).json()["portfolio_thumbnail"]
+        self.assertEqual(set(data), {"url", "width", "height", "alt"})
+        self.assertEqual(data["alt"], self.image.title)
+        listing = self.client.get("/api/cms/v2/pages/", {
+            "type": "public_content.CaseStudyPage", "fields": "*",
+        }).json()["items"]
+        self.assertEqual(next(p for p in listing if p["id"] == self.case_study.pk)["portfolio_thumbnail"], data)
+        related = self.client.get(f"/api/cms/v2/pages/{self.service.pk}/?fields=*").json()["related_case_studies"]
+        self.assertEqual(related[0]["portfolio_thumbnail"], data)
+        self.case_study.refresh_from_db()
+        self.assertEqual(public_page_summary(self.case_study)["portfolio_thumbnail"], data)
+
+    def test_optional_dark_logo_and_draft_isolation(self):
+        url = "/api/cms/v2/collaborators/"
+        collaborator = self.published_collaborator
+        def public_logo():
+            return next(item for item in self.client.get(url).json() if item["id"] == collaborator.pk)["dark_logo"]
+        self.assertIsNone(public_logo())
+        collaborator.dark_logo = self.image
+        revision = collaborator.save_revision()
+        self.assertIsNone(public_logo())
+        revision.publish()
+        logo = public_logo()
+        self.assertEqual(set(logo), {"url", "width", "height", "alt"})
+        home = self.client.get(f"/api/cms/v2/pages/{self.home.pk}/?fields=*").json()
+        self.assertEqual(home["collaborators"][0]["dark_logo"], logo)
+
     def test_collaborator_endpoint_exposes_only_active_published_items(self):
         response = self.client.get("/api/cms/v2/collaborators/")
 
@@ -558,6 +594,7 @@ class PublicContentSecurityTests(TestCase):
                 "id",
                 "organization_name",
                 "logo",
+                "dark_logo",
                 "url",
                 "display_order",
                 "visual_variant",
@@ -775,6 +812,7 @@ class PublicContentSecurityTests(TestCase):
                 "id",
                 "organization_name",
                 "logo",
+                "dark_logo",
                 "url",
                 "display_order",
                 "visual_variant",

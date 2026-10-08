@@ -44,6 +44,10 @@ def public_page_summary(page):
         value = getattr(page, field_name, "")
         if value:
             summary[field_name] = value
+    if hasattr(page, "portfolio_thumbnail"):
+        summary["portfolio_thumbnail"] = get_rendition_data(
+            page.portfolio_thumbnail, "max-1200x900|format-webp",
+        )
     return summary
 
 
@@ -180,6 +184,7 @@ class OrderedRelatedCaseStudiesField(Field):
             value.select_related(
                 "case_study",
                 "case_study__hero_image",
+                "case_study__portfolio_thumbnail",
             ).order_by("sort_order", "pk")
         )
         pages = [relation.case_study for relation in relations]
@@ -191,6 +196,9 @@ class OrderedRelatedCaseStudiesField(Field):
                 "slug": page.slug,
                 "summary": page.summary,
                 "category": page.category,
+                "portfolio_thumbnail": get_rendition_data(
+                    page.portfolio_thumbnail, "max-1200x900|format-webp",
+                ),
                 "hero_image": get_rendition_data(
                     page.hero_image,
                     "fill-1200x800",
@@ -225,6 +233,9 @@ class OrderedCollaboratorsField(Field):
                         collaborator.logo,
                         "max-600x300",
                         collaborator.logo_alt,
+                    ),
+                    "dark_logo": get_rendition_data(
+                        collaborator.dark_logo, "max-600x300", collaborator.logo_alt,
                     ),
                     "url": collaborator.url,
                     "display_order": collaborator.display_order,

@@ -837,6 +837,11 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
             "Optional ordered visual modules, displayed after the narrative."
         ),
     )
+    portfolio_thumbnail = models.ForeignKey(
+        "wagtailimages.Image", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+        help_text="Optional project-card image used on Home, Work and Related Work.",
+    )
     hero_image = models.ForeignKey(
         "wagtailimages.Image",
         null=True,
@@ -863,6 +868,7 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         FieldPanel("client_display_name"),
         FieldPanel("category"),
         FieldPanel("summary"),
+        FieldPanel("portfolio_thumbnail"),
         FieldPanel("project_year"),
         FieldPanel("narrative"),
         FieldPanel("project_url"),
@@ -883,6 +889,9 @@ class CaseStudyPage(HeadlessPageMixin, PublicSEOMixin, Page):
         APIField("client_display_name"),
         APIField("category"),
         APIField("summary"),
+        APIField("portfolio_thumbnail", serializer=ControlledImageRenditionField(
+            "portfolio_thumbnail", filter_spec="max-1200x900|format-webp",
+        )),
         APIField("project_year"),
         APIField("narrative"),
         APIField("project_url"),
@@ -1313,6 +1322,11 @@ class Collaborator(DraftStateMixin, RevisionMixin, models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    dark_logo = models.ForeignKey(
+        "wagtailimages.Image", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+        help_text="Optional dark-theme asset. The default logo is used when empty.",
+    )
     logo_alt = models.CharField(max_length=255)
     url = models.URLField(max_length=500)
     display_order = models.PositiveIntegerField(default=0)
@@ -1322,6 +1336,7 @@ class Collaborator(DraftStateMixin, RevisionMixin, models.Model):
     panels = [
         FieldPanel("organization_name"),
         FieldPanel("logo"),
+        FieldPanel("dark_logo"),
         FieldPanel("logo_alt"),
         FieldPanel("url"),
         FieldPanel("display_order"),
